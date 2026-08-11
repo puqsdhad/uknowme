@@ -65,6 +65,8 @@ class Session:
     PING_INTERVAL = 5
     STORED_MSG_IDS_MAX_SIZE = 1000 * 2
     RECONNECT_THRESHOLD = timedelta(seconds=10)
+    UPDATE_QUEUE_SIZE = 1000
+    UPDATE_CONSUMERS = 4
 
     TRANSPORT_ERRORS: ClassVar = {
         404: "auth key not found",
@@ -192,6 +194,16 @@ class Session:
 
             self.recv_task = None
 
+        consumers = getattr(self, "_update_consumers", None)
+        if consumers:
+            for task in consumers:
+                if not task.done():
+                    task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError, RuntimeError):
+                await asyncio.gather(*consumers, return_exceptions=True)
+            setattr(self, "_update_consumers", [])
+            setattr(self, "_update_queue", None)
+
         if not self.is_media and callable(self.client.disconnect_handler):
             try:
                 await self.client.disconnect_handler(self.client)
@@ -213,6 +225,39 @@ class Session:
             self.last_reconnect_attempt = now
             await self.stop()
             await self.start()
+
+    def _get_update_queue(self):
+        q = getattr(self, "_update_queue", None)
+        if q is None:
+            q = asyncio.Queue(maxsize=Session.UPDATE_QUEUE_SIZE)
+            setattr(self, "_update_queue", q)
+            consumers = []
+            for _ in range(Session.UPDATE_CONSUMERS):
+                consumers.append(
+                    self.client.loop.create_task(self._update_consumer(q))
+                )
+            setattr(self, "_update_consumers", consumers)
+        return q
+
+    async def _update_consumer(self, q: asyncio.Queue):
+        while True:
+            body = await q.get()
+            if body is None:
+                q.task_done()
+                break
+            try:
+                await self.client.handle_updates(body)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning(
+                    "[%s] update consumer error: %s: %s",
+                    getattr(self.client, "name", "?"),
+                    type(e).__name__,
+                    str(e)[:200],
+                )
+            finally:
+                q.task_done()
 
     async def handle_packet(self, packet):
         data = await self.client.loop.run_in_executor(
@@ -289,7 +334,15 @@ class Session:
             elif isinstance(msg.body, raw.types.Pong):
                 msg_id = msg.body.msg_id
             elif self.client is not None:
-                self.client.loop.create_task(self.client.handle_updates(msg.body))
+                q = self._get_update_queue()
+                try:
+                    q.put_nowait(msg.body)
+                except asyncio.QueueFull:
+                    log.warning(
+                        "[%s] Update queue penuh (%d), drop update (pts self-heal)",
+                        getattr(self.client, "name", "?"),
+                        Session.UPDATE_QUEUE_SIZE,
+                    )
 
             if msg_id in self.results:
                 self.results[msg_id].value = getattr(msg.body, "result", msg.body)
