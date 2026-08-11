@@ -439,6 +439,9 @@ class Session:
                     or self.connection.protocol is None
                     or getattr(self.connection.protocol, "closed", True)
                 ):
+                    retries -= 1
+                    if retries == 0:
+                        break
                     log.warning(
                         "[%s] Connection is closed or not established. Attempting to reconnect...",
                         self.client.name,
