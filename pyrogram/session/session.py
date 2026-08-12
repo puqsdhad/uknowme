@@ -396,7 +396,10 @@ class Session:
                     )
 
                 if self.is_started.is_set():
-                    self.client.loop.create_task(self.restart())
+                    _restart_task = self.client.loop.create_task(self.restart())
+                    _restart_task.add_done_callback(
+                        lambda t: t.exception() if not t.cancelled() else None
+                    )
 
                 break
 
