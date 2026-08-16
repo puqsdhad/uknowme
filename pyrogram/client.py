@@ -48,7 +48,8 @@ from pyrogram.errors import (
     VolumeLocNotFound, ChannelPrivate,
     BadRequest, AuthBytesInvalid,
     FloodWait, FloodPremiumWait,
-    ChannelInvalid, PersistentTimestampInvalid, PersistentTimestampOutdated
+    ChannelInvalid, PersistentTimestampInvalid, PersistentTimestampOutdated,
+    RPCError,
 )
 from .connection import Connection
 from .connection.transport import TCP, TCPAbridged
@@ -353,7 +354,14 @@ class Client(Methods):
                 break
 
             if datetime.now() - self.last_update_time > timedelta(seconds=self.UPDATES_WATCHDOG_INTERVAL):
-                await self.invoke(raw.functions.updates.GetState())
+                try:
+                    await self.invoke(raw.functions.updates.GetState())
+                except (OSError, RPCError) as e:
+                    log.warning(
+                        "Updates watchdog failed for %s: %s",
+                        self.name,
+                        str(e) or repr(e),
+                    )
 
     async def authorize(self) -> User:
         if self.bot_token:

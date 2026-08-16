@@ -67,6 +67,7 @@ class Session:
     RECONNECT_THRESHOLD = timedelta(seconds=10)
     UPDATE_QUEUE_SIZE = 1000
     UPDATE_CONSUMERS = 4
+    MAX_START_RETRIES = 5
 
     TRANSPORT_ERRORS: ClassVar = {
         404: "auth key not found",
@@ -110,12 +111,15 @@ class Session:
 
         self.recv_task = None
 
+        self.restart_task = None
+
         self.is_started = asyncio.Event()
         self.restart_lock = asyncio.Lock()
 
         self.last_reconnect_attempt = None
 
     async def start(self):
+        failures = 0
         while True:
             self.connection = self.client.connection_factory(
                 dc_id=self.dc_id,
@@ -159,12 +163,22 @@ class Session:
             except AuthKeyDuplicated as e:
                 await self.stop()
                 raise e
-            except (OSError, RPCError):
+            except (OSError, RPCError) as e:
+                failures += 1
                 await self.stop()
+                if failures >= self.MAX_START_RETRIES:
+                    log.warning(
+                        "[%s] Session failed to start %d times in a row: %s",
+                        self.client.name,
+                        failures,
+                        str(e) or repr(e),
+                    )
+                    raise e
             except Exception as e:
                 await self.stop()
                 raise e
             else:
+                failures = 0
                 break
 
         self.is_started.set()
@@ -173,6 +187,14 @@ class Session:
 
     async def stop(self):
         self.is_started.clear()
+
+        current = asyncio.current_task()
+        task = getattr(self, "restart_task", None)
+        if task is not None and task is not current and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError, RuntimeError):
+                await asyncio.gather(task, return_exceptions=True)
+        self.restart_task = None
 
         self.stored_msg_ids.clear()
 
@@ -225,6 +247,17 @@ class Session:
             self.last_reconnect_attempt = now
             await self.stop()
             await self.start()
+
+    def _schedule_restart(self):
+        if not self.is_started.is_set():
+            return
+        task = getattr(self, "restart_task", None)
+        if task is not None and not task.done():
+            return
+        self.restart_task = self.client.loop.create_task(self.restart())
+        self.restart_task.add_done_callback(
+            lambda t: t.exception() if not t.cancelled() else None
+        )
 
     def _get_update_queue(self):
         q = getattr(self, "_update_queue", None)
@@ -396,10 +429,7 @@ class Session:
                     )
 
                 if self.is_started.is_set():
-                    _restart_task = self.client.loop.create_task(self.restart())
-                    _restart_task.add_done_callback(
-                        lambda t: t.exception() if not t.cancelled() else None
-                    )
+                    self._schedule_restart()
 
                 break
 
@@ -508,6 +538,8 @@ class Session:
             except (OSError, InternalServerError, ServiceUnavailable) as e:
                 retries -= 1
                 if retries == 0:
+                    if isinstance(e, OSError):
+                        self._schedule_restart()
                     raise e
 
                 (log.warning if retries < 2 else log.info)(
