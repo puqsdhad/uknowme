@@ -248,16 +248,35 @@ class Session:
             await self.stop()
             await self.start()
 
+    async def _restart_with_retry(self, max_retries: int = 3):
+        for attempt in range(1, max_retries + 1):
+            try:
+                await self.restart()
+                return
+            except Exception as e:
+                log.warning(
+                    "[%s] Reconnect attempt %d/%d failed: %s",
+                    self.client.name,
+                    attempt,
+                    max_retries,
+                    str(e) or repr(e),
+                )
+                if attempt < max_retries:
+                    await asyncio.sleep(min(30, 2**attempt))
+        log.error(
+            "[%s] Session reconnect failed after %d attempts; re-arming restart",
+            self.client.name,
+            max_retries,
+        )
+        self.restart_task = None
+        await asyncio.sleep(10)
+        self.restart_task = self.client.loop.create_task(self._restart_with_retry())
+
     def _schedule_restart(self):
-        if not self.is_started.is_set():
-            return
         task = getattr(self, "restart_task", None)
         if task is not None and not task.done():
             return
-        self.restart_task = self.client.loop.create_task(self.restart())
-        self.restart_task.add_done_callback(
-            lambda t: t.exception() if not t.cancelled() else None
-        )
+        self.restart_task = self.client.loop.create_task(self._restart_with_retry())
 
     def _get_update_queue(self):
         q = getattr(self, "_update_queue", None)
@@ -537,9 +556,9 @@ class Session:
                 await asyncio.sleep(amount)
             except (OSError, InternalServerError, ServiceUnavailable) as e:
                 retries -= 1
+                if isinstance(e, OSError):
+                    self._schedule_restart()
                 if retries == 0:
-                    if isinstance(e, OSError):
-                        self._schedule_restart()
                     raise e
 
                 (log.warning if retries < 2 else log.info)(
