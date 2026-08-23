@@ -17,8 +17,10 @@
 #  along with Pyrogram.  If not, see <http://www.gnu.org/licenses/>.
 
 import asyncio
+import contextlib
 import inspect
 import logging
+import time
 from collections import OrderedDict
 from typing import Any
 
@@ -46,6 +48,10 @@ class Dispatcher:
     CHAT_JOIN_REQUEST_UPDATES = (raw.types.UpdateBotChatInviteRequester,)
     NEW_STORY_UPDATES = (raw.types.UpdateStory,)
 
+    WORKER_BUSY_TIMEOUT = 300
+    MONITOR_INTERVAL = 60
+    BACKLOG_WARN_THRESHOLD = 100
+
     def __init__(self, client: "pyrogram.Client"):
         self.client = client
         self.loop = asyncio.get_event_loop()
@@ -53,6 +59,10 @@ class Dispatcher:
         self.handler_worker_tasks = []
         self.locks_list = []
         self.error_handlers = []
+
+        self.worker_busy_since = {}
+        self.hang_candidates = set()
+        self.monitor_task = None
 
         self.updates_queue = asyncio.Queue()
         self.groups = OrderedDict()
@@ -149,22 +159,42 @@ class Dispatcher:
                 self.locks_list.append(asyncio.Lock())
 
                 self.handler_worker_tasks.append(
-                    self.loop.create_task(self.handler_worker(self.locks_list[-1]))
+                    self.loop.create_task(self.handler_worker(self.locks_list[-1], i))
                 )
+
+            self.monitor_task = self.loop.create_task(self.workers_monitor())
 
             log.info("Started %s HandlerTasks", self.client.workers)
 
     async def stop(self):
+        if self.monitor_task is not None:
+            self.monitor_task.cancel()
+
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.monitor_task
+
+            self.monitor_task = None
+
         if not self.client.no_updates:
             for i in range(self.client.workers):
                 self.updates_queue.put_nowait(None)
 
-            for i in self.handler_worker_tasks:
-                await i
+            pending = [t for t in self.handler_worker_tasks if not t.done()]
+
+            if pending:
+                _, still_pending = await asyncio.wait(pending, timeout=15)
+
+                for t in still_pending:
+                    t.cancel()
+
+                if still_pending:
+                    await asyncio.gather(*still_pending, return_exceptions=True)
 
             self.handler_worker_tasks.clear()
             self.groups.clear()
             self.error_handlers.clear()
+            self.worker_busy_since.clear()
+            self.hang_candidates.clear()
 
             log.info("Stopped %s HandlerTasks", self.client.workers)
 
@@ -208,13 +238,14 @@ class Dispatcher:
                 for lock in self.locks_list:
                     lock.release()
 
-    async def handler_worker(self, lock: asyncio.Lock):
+    async def handler_worker(self, lock: asyncio.Lock, idx: int = 0):
         while True:
             packet = await self.updates_queue.get()
 
             if packet is None:
                 break
 
+            self.worker_busy_since[idx] = time.monotonic()
             try:
                 await self._handle_packet(packet, lock)
             except pyrogram.StopPropagation:
@@ -222,7 +253,77 @@ class Dispatcher:
             except Exception as e:
                 log.exception(e)
             finally:
+                self.worker_busy_since.pop(idx, None)
                 self.updates_queue.task_done()
+
+    async def workers_monitor(self):
+        log.debug("Dispatcher workers monitor started")
+
+        while True:
+            await asyncio.sleep(self.MONITOR_INTERVAL)
+
+            try:
+                qsize = self.updates_queue.qsize()
+
+                if qsize > self.BACKLOG_WARN_THRESHOLD:
+                    log.warning(
+                        "[%s] Dispatcher backlog: %d updates pending",
+                        getattr(self.client, "name", "?"),
+                        qsize,
+                    )
+
+                now = time.monotonic()
+
+                for idx, task in enumerate(self.handler_worker_tasks):
+                    if idx >= len(self.locks_list):
+                        continue
+
+                    name = getattr(self.client, "name", "?")
+                    busy_since = self.worker_busy_since.get(idx)
+                    busy_for = now - busy_since if busy_since is not None else 0.0
+
+                    if task.done():
+                        reason = "died unexpectedly"
+                    elif (
+                        busy_since is None
+                        or qsize == 0
+                        or busy_for <= self.WORKER_BUSY_TIMEOUT
+                    ):
+                        self.hang_candidates.discard(idx)
+                        continue
+                    elif idx not in self.hang_candidates:
+                        self.hang_candidates.add(idx)
+                        log.warning(
+                            "[%s] Handler worker %d busy for %.0fs with %d pending updates (suspected hang)",
+                            name,
+                            idx,
+                            busy_for,
+                            qsize,
+                        )
+                        continue
+                    else:
+                        reason = f"confirmed hang ({busy_for:.0f}s)"
+
+                    log.warning(
+                        "[%s] Resurrecting handler worker %d (%s), backlog=%d",
+                        name,
+                        idx,
+                        reason,
+                        qsize,
+                    )
+                    self.hang_candidates.discard(idx)
+                    self.worker_busy_since.pop(idx, None)
+
+                    if not task.done():
+                        task.cancel()
+
+                    self.handler_worker_tasks[idx] = self.loop.create_task(
+                        self.handler_worker(self.locks_list[idx], idx)
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("Dispatcher monitor error: %s", repr(e))
     
     async def _handle_packet(self, packet, lock: asyncio.Lock):
         update, users, chats = packet

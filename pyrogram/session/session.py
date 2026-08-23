@@ -181,6 +181,9 @@ class Session:
                 failures = 0
                 break
 
+        if not self.is_media:
+            self.client.is_connected = True
+
         self.is_started.set()
 
         log.info("Session started")
@@ -448,6 +451,8 @@ class Session:
                     )
 
                 if self.is_started.is_set():
+                    if not self.is_media:
+                        self.client.is_connected = False
                     self._schedule_restart()
 
                 break
