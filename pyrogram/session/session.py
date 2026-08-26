@@ -120,6 +120,7 @@ class Session:
 
     async def start(self):
         failures = 0
+        self._starting = True
         while True:
             self.connection = self.client.connection_factory(
                 dc_id=self.dc_id,
@@ -162,8 +163,9 @@ class Session:
                 log.info("System: %s (%s)", self.client.system_version, self.client.lang_code)
             except AuthKeyDuplicated as e:
                 await self.stop()
+                self._starting = False
                 raise e
-            except (OSError, RPCError) as e:
+            except (OSError, TimeoutError, RPCError) as e:
                 failures += 1
                 await self.stop()
                 if failures >= self.MAX_START_RETRIES:
@@ -173,9 +175,11 @@ class Session:
                         failures,
                         str(e) or repr(e),
                     )
+                    self._starting = False
                     raise e
             except Exception as e:
                 await self.stop()
+                self._starting = False
                 raise e
             else:
                 failures = 0
@@ -185,6 +189,9 @@ class Session:
             self.client.is_connected = True
 
         self.is_started.set()
+        self._starting = False
+        self._restart_fail_streak = 0
+        self._transport_flood_streak = 0
 
         log.info("Session started")
 
@@ -199,7 +206,11 @@ class Session:
                 await asyncio.gather(task, return_exceptions=True)
         self.restart_task = None
 
+        self.recent_msg_ids = getattr(self, "recent_msg_ids", [])
+        del self.recent_msg_ids[:]
+        self.recent_msg_ids.extend(self.stored_msg_ids[-30:])
         self.stored_msg_ids.clear()
+        self.pending_acks.clear()
 
         self.ping_task_event.set()
 
@@ -219,14 +230,14 @@ class Session:
 
             self.recv_task = None
 
-        consumers = getattr(self, "_update_consumers", None)
+        consumers = getattr(self, "UpdateConsumers", None)
         if consumers:
             for task in consumers:
                 if not task.done():
                     task.cancel()
             with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError, RuntimeError):
                 await asyncio.gather(*consumers, return_exceptions=True)
-            setattr(self, "_update_consumers", [])
+            setattr(self, "UpdateConsumers", [])
             setattr(self, "_update_queue", None)
 
         if not self.is_media and callable(self.client.disconnect_handler):
@@ -251,10 +262,18 @@ class Session:
             await self.stop()
             await self.start()
 
-    async def _restart_with_retry(self, max_retries: int = 3):
+    async def RestartWithRetry(self, max_retries: int = 3):
+        streak = getattr(self, "_restart_fail_streak", 0)
         for attempt in range(1, max_retries + 1):
             try:
                 await self.restart()
+                if streak:
+                    log.info(
+                        "[%s] Session recovered after %d failed round(s)",
+                        self.client.name,
+                        streak,
+                    )
+                self._restart_fail_streak = 0
                 return
             except Exception as e:
                 log.warning(
@@ -266,35 +285,43 @@ class Session:
                 )
                 if attempt < max_retries:
                     await asyncio.sleep(min(30, 2**attempt))
+        self._restart_fail_streak = streak + 1
+        backoff = min(300, 10 * 2 ** min(self._restart_fail_streak, 5))
         log.error(
-            "[%s] Session reconnect failed after %d attempts; re-arming restart",
+            "[%s] Session reconnect failed after %d attempts (streak=%d); "
+            "re-arming restart in %ds",
             self.client.name,
             max_retries,
+            self._restart_fail_streak,
+            backoff,
         )
         self.restart_task = None
-        await asyncio.sleep(10)
-        self.restart_task = self.client.loop.create_task(self._restart_with_retry())
+        await asyncio.sleep(backoff)
+        self.restart_task = self.client.loop.create_task(self.RestartWithRetry())
 
-    def _schedule_restart(self):
+    def ScheduleRestart(self):
         task = getattr(self, "restart_task", None)
         if task is not None and not task.done():
             return
-        self.restart_task = self.client.loop.create_task(self._restart_with_retry())
+        self.restart_task = self.client.loop.create_task(self.RestartWithRetry())
 
-    def _get_update_queue(self):
+    def GetUpdateQueue(self):
         q = getattr(self, "_update_queue", None)
         if q is None:
+            if not self.is_started.is_set():
+                return None
+
             q = asyncio.Queue(maxsize=Session.UPDATE_QUEUE_SIZE)
             setattr(self, "_update_queue", q)
             consumers = []
             for _ in range(Session.UPDATE_CONSUMERS):
                 consumers.append(
-                    self.client.loop.create_task(self._update_consumer(q))
+                    self.client.loop.create_task(self.UpdateConsumer(q))
                 )
-            setattr(self, "_update_consumers", consumers)
+            setattr(self, "UpdateConsumers", consumers)
         return q
 
-    async def _update_consumer(self, q: asyncio.Queue):
+    async def UpdateConsumer(self, q: asyncio.Queue):
         while True:
             body = await q.get()
             if body is None:
@@ -337,6 +364,16 @@ class Session:
             try:
                 if len(self.stored_msg_ids) > Session.STORED_MSG_IDS_MAX_SIZE:
                     del self.stored_msg_ids[: Session.STORED_MSG_IDS_MAX_SIZE // 2]
+
+                recent = getattr(self, "recent_msg_ids", None)
+
+                if recent and msg.msg_id in recent:
+                    recent.remove(msg.msg_id)
+                    log.info(
+                        "[%s] Skipping replayed packet from previous connection",
+                        getattr(self.client, "name", "?"),
+                    )
+                    continue
 
                 if self.stored_msg_ids:
                     if msg.msg_id < self.stored_msg_ids[0]:
@@ -388,16 +425,18 @@ class Session:
                 msg_id = msg.body.req_msg_id
             elif isinstance(msg.body, raw.types.Pong):
                 msg_id = msg.body.msg_id
-            elif self.client is not None:
-                q = self._get_update_queue()
-                try:
-                    q.put_nowait(msg.body)
-                except asyncio.QueueFull:
-                    log.warning(
-                        "[%s] Update queue penuh (%d), drop update (pts self-heal)",
-                        getattr(self.client, "name", "?"),
-                        Session.UPDATE_QUEUE_SIZE,
-                    )
+            elif self.client is not None and self.is_started.is_set():
+                q = self.GetUpdateQueue()
+
+                if q is not None:
+                    try:
+                        q.put_nowait(msg.body)
+                    except asyncio.QueueFull:
+                        log.warning(
+                            "[%s] Update queue penuh (%d), drop update (pts self-heal)",
+                            getattr(self.client, "name", "?"),
+                            Session.UPDATE_QUEUE_SIZE,
+                        )
 
             if msg_id in self.results:
                 self.results[msg_id].value = getattr(msg.body, "result", msg.body)
@@ -450,10 +489,32 @@ class Session:
                         Session.TRANSPORT_ERRORS.get(error_code, "unknown error"),
                     )
 
+                    if error_code in (429, 444):
+                        streak = getattr(self, "_transport_flood_streak", 0)
+                        delay = min(60, 5 * 2 ** min(streak, 4))
+                        self._transport_flood_streak = streak + 1
+
+                        log.error(
+                            "[%s] Transport flood (%d); backing off %ds before reconnect",
+                            self.client.name,
+                            error_code,
+                            delay,
+                        )
+
+                        await asyncio.sleep(delay)
+
+                if not self.is_media:
+                    self.client.is_connected = False
+
                 if self.is_started.is_set():
-                    if not self.is_media:
-                        self.client.is_connected = False
-                    self._schedule_restart()
+                    self.ScheduleRestart()
+                elif not getattr(self, "_starting", False):
+                    log.error(
+                        "[%s] Transport closed before session fully started; "
+                        "scheduling recovery",
+                        self.client.name,
+                    )
+                    self.ScheduleRestart()
 
                 break
 
@@ -562,7 +623,7 @@ class Session:
             except (OSError, InternalServerError, ServiceUnavailable) as e:
                 retries -= 1
                 if isinstance(e, OSError):
-                    self._schedule_restart()
+                    self.ScheduleRestart()
                 if retries == 0:
                     raise e
 
