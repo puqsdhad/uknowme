@@ -503,18 +503,15 @@ class Session:
 
                         await asyncio.sleep(delay)
 
-                if not self.is_media:
-                    self.client.is_connected = False
-
                 if self.is_started.is_set():
+                    if not self.is_media:
+                        self.client.is_connected = False
                     self.ScheduleRestart()
-                elif not getattr(self, "_starting", False):
-                    log.error(
-                        "[%s] Transport closed before session fully started; "
-                        "scheduling recovery",
-                        self.client.name,
+                else:
+                    log.debug(
+                        "[%s] Transport closed during startup; start() owns recovery",
+                        getattr(self.client, "name", "?"),
                     )
-                    self.ScheduleRestart()
 
                 break
 
