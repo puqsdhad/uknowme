@@ -342,6 +342,8 @@ class Session:
                 q.task_done()
 
     async def handle_packet(self, packet):
+        conn = self.connection
+
         data = await self.client.loop.run_in_executor(
             pyrogram.crypto_executor,
             mtproto.unpack,
@@ -350,6 +352,9 @@ class Session:
             self.auth_key,
             self.auth_key_id,
         )
+
+        if self.connection is not conn:
+            return
 
         messages = data.body.messages if isinstance(data.body, MsgContainer) else [data]
 
@@ -404,9 +409,12 @@ class Session:
                             "this error in pyrogram."
                         )
             except SecurityCheckMismatch as e:
-                log.info("Discarding packet: %s", e)
-                await self.connection.close()
-                return
+                log.info(
+                    "[%s] Skipping packet (no connection kill): %s",
+                    getattr(self.client, "name", "?"),
+                    e,
+                )
+                continue
             else:
                 bisect.insort(self.stored_msg_ids, msg.msg_id)
 
