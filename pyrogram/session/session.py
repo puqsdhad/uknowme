@@ -490,14 +490,30 @@ class Session:
                 q = self.GetUpdateQueue()
 
                 if q is not None:
+                    # ChannelTooLong hanyalah sinyal "ada channel baru/pindah
+                    # state" - tidak bermakna buan dispatcher dan sering badai
+                    # saat sesi fresh di banyak channel. Buang sebelum antri.
+                    if isinstance(
+                        msg.body, raw.types.UpdateChannelTooLong
+                    ) and not getattr(msg.body, "pts", None):
+                        continue
+
                     try:
                         q.put_nowait(msg.body)
                     except asyncio.QueueFull:
-                        log.warning(
-                            "[%s] Update queue penuh (%d), drop update (pts self-heal)",
-                            getattr(self.client, "name", "?"),
-                            Session.UPDATE_QUEUE_SIZE,
-                        )
+                        # Throttle log: jangan banjiri output saat inflow
+                        # melampaui kapasitas konsumen.
+                        dropped = getattr(self, "_dropped_updates", 0) + 1
+                        self._dropped_updates = dropped
+
+                        if dropped == 1 or dropped % 200 == 0:
+                            log.warning(
+                                "[%s] Update queue penuh (%d); total drop=%d "
+                                "(pts self-heal menutup gap nanti)",
+                                getattr(self.client, "name", "?"),
+                                q.maxsize,
+                                dropped,
+                            )
 
             if msg_id in self.results:
                 self.results[msg_id].value = getattr(msg.body, "result", msg.body)
