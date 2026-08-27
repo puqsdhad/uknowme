@@ -826,7 +826,26 @@ class Client(Methods):
 
             prev_pts = 0
 
+            # Circuit breaker: gap recovery untuk SATU channel tidak boleh
+            # membekukan seluruh consumer. TooLong tanpa kemajuan pts berulang
+            # kali (server sibuk / state usang parah) -> simpan state apa
+            # adanya & lanjut channel berikutnya.
+            iterations = 0
+            toolong_streak = 0
+            MAX_DIFF_ITERATIONS = 20
+            MAX_TOOLONG_STREAK = 3
+
             while True:
+                iterations += 1
+                if iterations > MAX_DIFF_ITERATIONS:
+                    log.warning(
+                        "[%s] Gap recovery %s melewati %d iterasi; skip channel",
+                        self.name,
+                        id,
+                        MAX_DIFF_ITERATIONS,
+                    )
+                    break
+
                 try:
                     diff = await self.invoke(
                         raw.functions.updates.GetChannelDifference(
@@ -857,6 +876,7 @@ class Client(Methods):
                     )
                     break
                 elif isinstance(diff, raw.types.updates.DifferenceTooLong):
+                    toolong_streak += 1
                     await self.storage.update_state(
                         (
                             id,
@@ -866,6 +886,14 @@ class Client(Methods):
                             local_seq
                         )
                     )
+                    if toolong_streak >= MAX_TOOLONG_STREAK:
+                        log.warning(
+                            "[%s] DifferenceTooLong berulang %dx utama %s; skip",
+                            self.name,
+                            toolong_streak,
+                            id,
+                        )
+                        break
                     continue
                 elif isinstance(diff, raw.types.updates.Difference):
                     local_pts = diff.state.pts
@@ -892,6 +920,11 @@ class Client(Methods):
                     )
                     break
                 elif isinstance(diff, raw.types.updates.ChannelDifferenceTooLong):
+                    if local_pts == diff.dialog.pts:
+                        toolong_streak += 1
+                    else:
+                        toolong_streak = 0
+
                     await self.storage.update_state(
                         (
                             id,
@@ -901,6 +934,15 @@ class Client(Methods):
                             local_seq
                         )
                     )
+
+                    if toolong_streak >= MAX_TOOLONG_STREAK:
+                        log.warning(
+                            "[%s] ChannelDifferenceTooLong stuck %dx %s; skip",
+                            self.name,
+                            toolong_streak,
+                            id,
+                        )
+                        break
                     continue
                 elif isinstance(diff, raw.types.updates.ChannelDifference):
                     local_pts = diff.pts
