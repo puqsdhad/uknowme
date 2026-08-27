@@ -360,14 +360,18 @@ class Session:
             if not self.is_started.is_set():
                 return None
 
-            q = asyncio.Queue(maxsize=Session.UPDATE_QUEUE_SIZE)
+            # Per-client override via Client kwargs (heavy-traffic fleets).
+            qsize = getattr(self.client, "update_queue_size", None) or Session.UPDATE_QUEUE_SIZE
+            consumers = getattr(self.client, "update_consumers", None) or Session.UPDATE_CONSUMERS
+
+            q = asyncio.Queue(maxsize=qsize)
             setattr(self, "_update_queue", q)
-            consumers = []
-            for _ in range(Session.UPDATE_CONSUMERS):
-                consumers.append(
+            worker_tasks = []
+            for _ in range(consumers):
+                worker_tasks.append(
                     self.client.loop.create_task(self.UpdateConsumer(q))
                 )
-            setattr(self, "UpdateConsumers", consumers)
+            setattr(self, "_update_consumers", worker_tasks)
         return q
 
     async def UpdateConsumer(self, q: asyncio.Queue):
