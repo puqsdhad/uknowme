@@ -508,11 +508,11 @@ class Session:
 
                         if dropped == 1 or dropped % 200 == 0:
                             log.warning(
-                                "[%s] Update queue penuh (%d); total drop=%d "
-                                "(pts self-heal menutup gap nanti)",
+                                "[%s] Queue penuh (%d); drop=%d contoh=%s",
                                 getattr(self.client, "name", "?"),
                                 q.maxsize,
                                 dropped,
+                                type(msg.body).__name__,
                             )
 
             if msg_id in self.results:
