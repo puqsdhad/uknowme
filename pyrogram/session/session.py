@@ -195,6 +195,32 @@ class Session:
 
         log.info("Session started")
 
+        # In-memory sessions start with an empty update_state; Telegram then
+        # reports PERSISTENT_TIMESTAMP_OUTDATED on every GetChannelDifference,
+        # starving the update consumers. Seed the global state from the server
+        # before the session starts delivering updates.
+        if not self.is_media and not self.is_cdn:
+            try:
+                st = await self.invoke(
+                    raw.functions.updates.GetState(), timeout=self.START_TIMEOUT
+                )
+                await self.storage.update_state(
+                    (
+                        0,
+                        st.pts,
+                        st.qts,
+                        int(getattr(st.date, "timestamp", lambda: 0)()),
+                        st.seq,
+                    )
+                )
+            except Exception as e:
+                log.warning(
+                    "[%s] update_state seed failed: %s: %s",
+                    self.client.name,
+                    type(e).__name__,
+                    str(e)[:120],
+                )
+
     async def stop(self):
         self.is_started.clear()
 
