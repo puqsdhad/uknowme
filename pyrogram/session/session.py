@@ -204,7 +204,7 @@ class Session:
                 st = await self.invoke(
                     raw.functions.updates.GetState(), timeout=self.START_TIMEOUT
                 )
-                await self.storage.update_state(
+                await self.client.storage.update_state(
                     (
                         0,
                         st.pts,
