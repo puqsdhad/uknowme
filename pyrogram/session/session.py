@@ -198,6 +198,8 @@ class Session:
     async def stop(self):
         self.is_started.clear()
 
+        self._restart_generation = getattr(self, "_restart_generation", 0) + 1
+
         current = asyncio.current_task()
         task = getattr(self, "restart_task", None)
         if task is not None and task is not current and not task.done():
@@ -262,7 +264,7 @@ class Session:
             await self.stop()
             await self.start()
 
-    async def RestartWithRetry(self, max_retries: int = 3):
+    async def RestartWithRetry(self, gen: int, max_retries: int = 3):
         streak = getattr(self, "_restart_fail_streak", 0)
         for attempt in range(1, max_retries + 1):
             try:
@@ -285,6 +287,13 @@ class Session:
                 )
                 if attempt < max_retries:
                     await asyncio.sleep(min(30, 2**attempt))
+
+        # Generasi sudah maju (stop()/ScheduleRestart baru) -> task ini basi,
+        # jangan sentuh client lagi. Inilah pencegah zombie-loop yang selama
+        # ini bikin "Cannot operate on a closed database" + memory leak.
+        if getattr(self, "_restart_generation", gen) != gen:
+            return
+
         self._restart_fail_streak = streak + 1
         backoff = min(300, 10 * 2 ** min(self._restart_fail_streak, 5))
         log.error(
@@ -295,15 +304,29 @@ class Session:
             self._restart_fail_streak,
             backoff,
         )
-        self.restart_task = None
+        # restart_task TETAP menunjuk task yang sedang tidur ini, jadi
+        # stop() selalu bisa membatalkannya. Generasi di-check setelah bangun.
         await asyncio.sleep(backoff)
-        self.restart_task = self.client.loop.create_task(self.RestartWithRetry())
+
+        if getattr(self, "_restart_generation", gen) != gen:
+            return
+
+        if self.is_started.is_set():
+            return
+
+        self.restart_task = self.client.loop.create_task(
+            self.RestartWithRetry(gen)
+        )
 
     def ScheduleRestart(self):
         task = getattr(self, "restart_task", None)
         if task is not None and not task.done():
             return
-        self.restart_task = self.client.loop.create_task(self.RestartWithRetry())
+        self._restart_generation = getattr(self, "_restart_generation", 0) + 1
+        gen = self._restart_generation
+        self.restart_task = self.client.loop.create_task(
+            self.RestartWithRetry(gen)
+        )
 
     def GetUpdateQueue(self):
         q = getattr(self, "_update_queue", None)
