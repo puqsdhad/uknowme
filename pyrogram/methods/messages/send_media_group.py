@@ -455,7 +455,6 @@ class SendMediaGroup:
                                              raw.types.UpdateNewScheduledMessage)),
                     r.updates
                 )],
-                topics=[],
                 users=r.users,
                 chats=r.chats
             )

@@ -65,9 +65,6 @@ class Session:
     PING_INTERVAL = 5
     STORED_MSG_IDS_MAX_SIZE = 1000 * 2
     RECONNECT_THRESHOLD = timedelta(seconds=10)
-    UPDATE_QUEUE_SIZE = 1000
-    UPDATE_CONSUMERS = 4
-    MAX_START_RETRIES = 5
 
     TRANSPORT_ERRORS: ClassVar = {
         404: "auth key not found",
@@ -111,16 +108,12 @@ class Session:
 
         self.recv_task = None
 
-        self.restart_task = None
-
         self.is_started = asyncio.Event()
         self.restart_lock = asyncio.Lock()
 
         self.last_reconnect_attempt = None
 
     async def start(self):
-        failures = 0
-        self._starting = True
         while True:
             self.connection = self.client.connection_factory(
                 dc_id=self.dc_id,
@@ -163,82 +156,23 @@ class Session:
                 log.info("System: %s (%s)", self.client.system_version, self.client.lang_code)
             except AuthKeyDuplicated as e:
                 await self.stop()
-                self._starting = False
                 raise e
-            except (OSError, TimeoutError, RPCError) as e:
-                failures += 1
+            except (OSError, RPCError):
                 await self.stop()
-                if failures >= self.MAX_START_RETRIES:
-                    log.warning(
-                        "[%s] Session failed to start %d times in a row: %s",
-                        self.client.name,
-                        failures,
-                        str(e) or repr(e),
-                    )
-                    self._starting = False
-                    raise e
             except Exception as e:
                 await self.stop()
-                self._starting = False
                 raise e
             else:
-                failures = 0
                 break
 
-        if not self.is_media:
-            self.client.is_connected = True
-
         self.is_started.set()
-        self._starting = False
-        self._restart_fail_streak = 0
-        self._transport_flood_streak = 0
 
         log.info("Session started")
-
-        # In-memory sessions start with an empty update_state; Telegram then
-        # reports PERSISTENT_TIMESTAMP_OUTDATED on every GetChannelDifference,
-        # starving the update consumers. Seed the global state from the server
-        # before the session starts delivering updates.
-        if not self.is_media and not self.is_cdn:
-            try:
-                st = await self.invoke(
-                    raw.functions.updates.GetState(), timeout=self.START_TIMEOUT
-                )
-                await self.client.storage.update_state(
-                    (
-                        0,
-                        st.pts,
-                        st.qts,
-                        int(getattr(st.date, "timestamp", lambda: 0)()),
-                        st.seq,
-                    )
-                )
-            except Exception as e:
-                log.warning(
-                    "[%s] update_state seed failed: %s: %s",
-                    self.client.name,
-                    type(e).__name__,
-                    str(e)[:120],
-                )
 
     async def stop(self):
         self.is_started.clear()
 
-        self._restart_generation = getattr(self, "_restart_generation", 0) + 1
-
-        current = asyncio.current_task()
-        task = getattr(self, "restart_task", None)
-        if task is not None and task is not current and not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError, RuntimeError):
-                await asyncio.gather(task, return_exceptions=True)
-        self.restart_task = None
-
-        self.recent_msg_ids = getattr(self, "recent_msg_ids", [])
-        del self.recent_msg_ids[:]
-        self.recent_msg_ids.extend(self.stored_msg_ids[-30:])
         self.stored_msg_ids.clear()
-        self.pending_acks.clear()
 
         self.ping_task_event.set()
 
@@ -257,16 +191,6 @@ class Session:
                 await asyncio.wait_for(self.recv_task, timeout=1.0)
 
             self.recv_task = None
-
-        consumers = getattr(self, "UpdateConsumers", None)
-        if consumers:
-            for task in consumers:
-                if not task.done():
-                    task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError, RuntimeError):
-                await asyncio.gather(*consumers, return_exceptions=True)
-            setattr(self, "UpdateConsumers", [])
-            setattr(self, "_update_queue", None)
 
         if not self.is_media and callable(self.client.disconnect_handler):
             try:
@@ -290,113 +214,7 @@ class Session:
             await self.stop()
             await self.start()
 
-    async def RestartWithRetry(self, gen: int, max_retries: int = 3):
-        streak = getattr(self, "_restart_fail_streak", 0)
-        for attempt in range(1, max_retries + 1):
-            try:
-                await self.restart()
-                if streak:
-                    log.info(
-                        "[%s] Session recovered after %d failed round(s)",
-                        self.client.name,
-                        streak,
-                    )
-                self._restart_fail_streak = 0
-                return
-            except Exception as e:
-                log.warning(
-                    "[%s] Reconnect attempt %d/%d failed: %s",
-                    self.client.name,
-                    attempt,
-                    max_retries,
-                    str(e) or repr(e),
-                )
-                if attempt < max_retries:
-                    await asyncio.sleep(min(30, 2**attempt))
-
-        # Generasi sudah maju (stop()/ScheduleRestart baru) -> task ini basi,
-        # jangan sentuh client lagi. Inilah pencegah zombie-loop yang selama
-        # ini bikin "Cannot operate on a closed database" + memory leak.
-        if getattr(self, "_restart_generation", gen) != gen:
-            return
-
-        self._restart_fail_streak = streak + 1
-        backoff = min(300, 10 * 2 ** min(self._restart_fail_streak, 5))
-        log.error(
-            "[%s] Session reconnect failed after %d attempts (streak=%d); "
-            "re-arming restart in %ds",
-            self.client.name,
-            max_retries,
-            self._restart_fail_streak,
-            backoff,
-        )
-        # restart_task TETAP menunjuk task yang sedang tidur ini, jadi
-        # stop() selalu bisa membatalkannya. Generasi di-check setelah bangun.
-        await asyncio.sleep(backoff)
-
-        if getattr(self, "_restart_generation", gen) != gen:
-            return
-
-        if self.is_started.is_set():
-            return
-
-        self.restart_task = self.client.loop.create_task(
-            self.RestartWithRetry(gen)
-        )
-
-    def ScheduleRestart(self):
-        task = getattr(self, "restart_task", None)
-        if task is not None and not task.done():
-            return
-        self._restart_generation = getattr(self, "_restart_generation", 0) + 1
-        gen = self._restart_generation
-        self.restart_task = self.client.loop.create_task(
-            self.RestartWithRetry(gen)
-        )
-
-    def GetUpdateQueue(self):
-        q = getattr(self, "_update_queue", None)
-        if q is None:
-            if not self.is_started.is_set():
-                return None
-
-            # Per-client override via Client kwargs (heavy-traffic fleets).
-            qsize = getattr(self.client, "update_queue_size", None) or Session.UPDATE_QUEUE_SIZE
-            consumers = getattr(self.client, "update_consumers", None) or Session.UPDATE_CONSUMERS
-
-            q = asyncio.Queue(maxsize=qsize)
-            setattr(self, "_update_queue", q)
-            worker_tasks = []
-            for _ in range(consumers):
-                worker_tasks.append(
-                    self.client.loop.create_task(self.UpdateConsumer(q))
-                )
-            setattr(self, "_update_consumers", worker_tasks)
-        return q
-
-    async def UpdateConsumer(self, q: asyncio.Queue):
-        while True:
-            body = await q.get()
-            if body is None:
-                q.task_done()
-                break
-            try:
-                await self.client.handle_updates(body)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                log.warning(
-                    "[%s] update consumer error: %s: %s",
-                    getattr(self.client, "name", "?"),
-                    type(e).__name__,
-                    str(e)[:200],
-                )
-            finally:
-                q.task_done()
-
     async def handle_packet(self, packet):
-        conn = self.connection
-
         data = await self.client.loop.run_in_executor(
             pyrogram.crypto_executor,
             mtproto.unpack,
@@ -405,9 +223,6 @@ class Session:
             self.auth_key,
             self.auth_key_id,
         )
-
-        if self.connection is not conn:
-            return
 
         messages = data.body.messages if isinstance(data.body, MsgContainer) else [data]
 
@@ -422,16 +237,6 @@ class Session:
             try:
                 if len(self.stored_msg_ids) > Session.STORED_MSG_IDS_MAX_SIZE:
                     del self.stored_msg_ids[: Session.STORED_MSG_IDS_MAX_SIZE // 2]
-
-                recent = getattr(self, "recent_msg_ids", None)
-
-                if recent and msg.msg_id in recent:
-                    recent.remove(msg.msg_id)
-                    log.info(
-                        "[%s] Skipping replayed packet from previous connection",
-                        getattr(self.client, "name", "?"),
-                    )
-                    continue
 
                 if self.stored_msg_ids:
                     if msg.msg_id < self.stored_msg_ids[0]:
@@ -462,12 +267,9 @@ class Session:
                             "this error in pyrogram."
                         )
             except SecurityCheckMismatch as e:
-                log.info(
-                    "[%s] Skipping packet (no connection kill): %s",
-                    getattr(self.client, "name", "?"),
-                    e,
-                )
-                continue
+                log.info("Discarding packet: %s", e)
+                await self.connection.close()
+                return
             else:
                 bisect.insort(self.stored_msg_ids, msg.msg_id)
 
@@ -486,34 +288,8 @@ class Session:
                 msg_id = msg.body.req_msg_id
             elif isinstance(msg.body, raw.types.Pong):
                 msg_id = msg.body.msg_id
-            elif self.client is not None and self.is_started.is_set():
-                q = self.GetUpdateQueue()
-
-                if q is not None:
-                    # ChannelTooLong hanyalah sinyal "ada channel baru/pindah
-                    # state" - tidak bermakna buan dispatcher dan sering badai
-                    # saat sesi fresh di banyak channel. Buang sebelum antri.
-                    if isinstance(
-                        msg.body, raw.types.UpdateChannelTooLong
-                    ) and not getattr(msg.body, "pts", None):
-                        continue
-
-                    try:
-                        q.put_nowait(msg.body)
-                    except asyncio.QueueFull:
-                        # Throttle log: jangan banjiri output saat inflow
-                        # melampaui kapasitas konsumen.
-                        dropped = getattr(self, "_dropped_updates", 0) + 1
-                        self._dropped_updates = dropped
-
-                        if dropped == 1 or dropped % 200 == 0:
-                            log.warning(
-                                "[%s] Queue penuh (%d); drop=%d contoh=%s",
-                                getattr(self.client, "name", "?"),
-                                q.maxsize,
-                                dropped,
-                                type(msg.body).__name__,
-                            )
+            elif self.client is not None:
+                self.client.loop.create_task(self.client.handle_updates(msg.body))
 
             if msg_id in self.results:
                 self.results[msg_id].value = getattr(msg.body, "result", msg.body)
@@ -566,29 +342,8 @@ class Session:
                         Session.TRANSPORT_ERRORS.get(error_code, "unknown error"),
                     )
 
-                    if error_code in (429, 444):
-                        streak = getattr(self, "_transport_flood_streak", 0)
-                        delay = min(60, 5 * 2 ** min(streak, 4))
-                        self._transport_flood_streak = streak + 1
-
-                        log.error(
-                            "[%s] Transport flood (%d); backing off %ds before reconnect",
-                            self.client.name,
-                            error_code,
-                            delay,
-                        )
-
-                        await asyncio.sleep(delay)
-
                 if self.is_started.is_set():
-                    if not self.is_media:
-                        self.client.is_connected = False
-                    self.ScheduleRestart()
-                else:
-                    log.debug(
-                        "[%s] Transport closed during startup; start() owns recovery",
-                        getattr(self.client, "name", "?"),
-                    )
+                    self.client.loop.create_task(self.restart())
 
                 break
 
@@ -679,6 +434,19 @@ class Session:
         
         while retries > 0:
             try:
+                if (
+                    self.connection is None
+                    or self.connection.protocol is None
+                    or getattr(self.connection.protocol, "closed", True)
+                ):
+                    log.warning(
+                        "[%s] Connection is closed or not established. Attempting to reconnect...",
+                        self.client.name,
+                    )
+                    await self.restart()
+                    await asyncio.sleep(1)
+                    continue
+
                 return await self.send(query, timeout=timeout)
             except (FloodWait, FloodPremiumWait) as e:
                 amount = e.value
@@ -696,8 +464,6 @@ class Session:
                 await asyncio.sleep(amount)
             except (OSError, InternalServerError, ServiceUnavailable) as e:
                 retries -= 1
-                if isinstance(e, OSError):
-                    self.ScheduleRestart()
                 if retries == 0:
                     raise e
 
@@ -707,6 +473,16 @@ class Session:
                     query_name,
                     str(e) or repr(e),
                 )
+
+                if isinstance(e, OSError) and retries > 1:
+                    try:
+                        await self.restart()
+                    except Exception as restart_error:
+                        log.warning(
+                            "[%s] Failed to restart session: %s",
+                            self.client.name,
+                            str(restart_error) or repr(restart_error),
+                        )
 
                 await asyncio.sleep(0.5)
 
