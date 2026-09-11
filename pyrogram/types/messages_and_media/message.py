@@ -84,6 +84,9 @@ class Message(Object, Update):
         business_connection_id (``str``, *optional*):
             Business connection identifier, for messages received via a connected business account.
 
+        rich_message (:obj:`~pyrogram.types.RichMessage`, *optional*):
+            Rich formatted message content, for messages sent with rich formatting.
+
         forward_from (:obj:`~pyrogram.types.User`, *optional*):
             For forwarded messages, sender of the original message.
 
@@ -380,6 +383,7 @@ class Message(Object, Update):
         chat: "types.Chat" = None,
         topics: "types.ForumTopic" = None,
         business_connection_id: str = None,
+        rich_message: "types.RichMessage" = None,
         forward_from: "types.User" = None,
         forward_sender_name: str = None,
         forward_from_chat: "types.Chat" = None,
@@ -479,6 +483,7 @@ class Message(Object, Update):
         self.chat = chat
         self.topics = topics
         self.business_connection_id = business_connection_id
+        self.rich_message = rich_message
         self.forward_from = forward_from
         self.forward_sender_name = forward_sender_name
         self.forward_from_chat = forward_from_chat
@@ -1037,6 +1042,7 @@ class Message(Object, Update):
                 outgoing=message.out,
                 reply_markup=reply_markup,
                 reactions=reactions,
+                rich_message=types.RichMessage._parse(client, getattr(message, "rich_message", None)),
                 client=client
             )
 

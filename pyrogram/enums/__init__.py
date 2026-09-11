@@ -34,6 +34,8 @@ from .poll_type import PollType
 from .profile_color import ProfileColor
 from .reaction_type import ReactionType
 from .reply_color import ReplyColor
+from .rich_block_type import RichBlockType
+from .rich_text_type import RichTextType
 from .sent_code_type import SentCodeType
 from .stories_privacy_rules import StoriesPrivacyRules
 from .story_privacy import StoryPrivacy
@@ -58,6 +60,8 @@ __all__ = [
     'PollType',
     'ReplyColor',
     'ReactionType',
+    'RichBlockType',
+    'RichTextType',
     'SentCodeType',
     'StoriesPrivacyRules',
     'StoryPrivacy',
