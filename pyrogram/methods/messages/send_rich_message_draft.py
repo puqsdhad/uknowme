@@ -21,6 +21,8 @@ from typing import Union, Optional
 import pyrogram
 from pyrogram import raw, types, utils
 
+from .inline_session import get_session
+
 
 class SendRichMessageDraft:
     async def send_rich_message_draft(
@@ -29,6 +31,7 @@ class SendRichMessageDraft:
         rich_message: "types.InputRichMessage",
         message_thread_id: Optional[int] = None,
         reply_to_message_id: Optional[int] = None,
+        business_connection_id: Optional[str] = None,
     ) -> bool:
         """Stream a partial rich message as a typing indicator.
 
@@ -55,6 +58,9 @@ class SendRichMessageDraft:
             reply_to_message_id (``int``, *optional*):
                 Message being replied to.
 
+            business_connection_id (``str``, *optional*):
+                Unique identifier of the business connection to stream on behalf of.
+
         Returns:
             ``bool``: True on success.
 
@@ -77,13 +83,27 @@ class SendRichMessageDraft:
         peer = await self.resolve_peer(chat_id)
         top_msg_id = message_thread_id
 
-        return await self.invoke(
-            raw.functions.messages.SetTyping(
-                peer=peer,
-                action=raw.types.InputSendMessageRichMessageDraftAction(
-                    random_id=self.rnd_id(),
-                    rich_message=rich_message.write(),
-                ),
-                top_msg_id=top_msg_id,
-            )
+        session = None
+        if business_connection_id:
+            business_connection = self.business_user_connection_cache.get(business_connection_id)
+            if business_connection is None:
+                business_connection = await self.get_business_connection(business_connection_id)
+            session = await get_session(self, business_connection._raw.connection.dc_id)
+
+        rpc = raw.functions.messages.SetTyping(
+            peer=peer,
+            action=raw.types.InputSendMessageRichMessageDraftAction(
+                random_id=self.rnd_id(),
+                rich_message=rich_message.write(),
+            ),
+            top_msg_id=top_msg_id,
         )
+
+        if business_connection_id:
+            return await session.invoke(
+                raw.functions.InvokeWithBusinessConnection(
+                    query=rpc,
+                    connection_id=business_connection_id
+                )
+            )
+        return await self.invoke(rpc)

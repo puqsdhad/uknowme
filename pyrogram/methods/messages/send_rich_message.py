@@ -22,6 +22,8 @@ from typing import Union, Optional
 import pyrogram
 from pyrogram import raw, types, utils
 
+from .inline_session import get_session
+
 
 class SendRichMessage:
     async def send_rich_message(
@@ -34,6 +36,7 @@ class SendRichMessage:
         schedule_date: Optional[datetime] = None,
         silent: Optional[bool] = None,
         protect_content: Optional[bool] = None,
+        business_connection_id: Optional[str] = None,
     ) -> "types.Message":
         """Send a rich formatted message.
 
@@ -70,6 +73,10 @@ class SendRichMessage:
             protect_content (``bool``, *optional*):
                 Prevent message forwarding.
 
+            business_connection_id (``str``, *optional*):
+                Unique identifier of the business connection to send the rich
+                message on behalf of. Also enables rich buttons in business chats.
+
         Returns:
             :obj:`~pyrogram.types.Message`: On success, the sent message is returned.
             Catatan: server tidak meng-echo kembali ``rich_message`` pada pesan
@@ -96,19 +103,34 @@ class SendRichMessage:
             message_thread_id=message_thread_id
         )
 
-        r = await self.invoke(
-            raw.functions.messages.SendMessage(
-                peer=await self.resolve_peer(chat_id),
-                message="",
-                random_id=self.rnd_id(),
-                rich_message=rich_message.write(),
-                silent=silent or None,
-                noforwards=protect_content or None,
-                reply_to=reply_to,
-                reply_markup=await reply_markup.write(self) if reply_markup else None,
-                schedule_date=utils.datetime_to_timestamp(schedule_date),
-            )
+        session = None
+        if business_connection_id:
+            business_connection = self.business_user_connection_cache.get(business_connection_id)
+            if business_connection is None:
+                business_connection = await self.get_business_connection(business_connection_id)
+            session = await get_session(self, business_connection._raw.connection.dc_id)
+
+        rpc = raw.functions.messages.SendMessage(
+            peer=await self.resolve_peer(chat_id),
+            message="",
+            random_id=self.rnd_id(),
+            rich_message=rich_message.write(),
+            silent=silent or None,
+            noforwards=protect_content or None,
+            reply_to=reply_to,
+            reply_markup=await reply_markup.write(self) if reply_markup else None,
+            schedule_date=utils.datetime_to_timestamp(schedule_date),
         )
+
+        if business_connection_id:
+            r = await session.invoke(
+                raw.functions.InvokeWithBusinessConnection(
+                    query=rpc,
+                    connection_id=business_connection_id
+                )
+            )
+        else:
+            r = await self.invoke(rpc)
 
         for i in r.updates:
             if isinstance(i, (raw.types.UpdateNewMessage, raw.types.UpdateNewChannelMessage,
