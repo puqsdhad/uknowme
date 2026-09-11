@@ -1,3 +1,7 @@
+#  WVLGram - Telegram MTProto API Framework for Python
+#  Fork of Pyrogram, modified for private community use.
+#  Created by t.me/WannnKW
+#
 #  Pyrogram - Telegram MTProto API Client Library for Python
 #  Copyright (C) 2017-present Dan <https://github.com/delivrance>
 #
@@ -38,7 +42,7 @@ if len(argv) > 1 and argv[1] in ["bdist_wheel", "install", "develop"]:
     errors_compiler.start()
 
 setup(
-    name="InLifeGram",
+    name="WVLGram",
     version=version,
     description="Elegant, modern and asynchronous Telegram MTProto API framework in Python ( Fork From Pyrogram )",
     long_description=readme,
@@ -46,7 +50,7 @@ setup(
     url="https://github.com/wndrzzka/InLifeGram",
     download_url="https://github.com/wndrzzka/InLifeGram/releases/latest",
     author="WannnV",
-    author_email="wannfyy@gmail.com",
+    author_email="wvlgram@users.noreply.github.com",
     license="LGPLv3",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
@@ -74,10 +78,11 @@ setup(
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Topic :: Software Development :: Libraries :: Application Frameworks"
     ],
-    keywords="telegram chat messenger mtproto api client library python InLifeGram",
+    keywords="telegram chat messenger mtproto api client library python WVLGram",
     python_requires=">=3.8",
     package_data={
-        "InLifeGram": ["py.typed"],
+        "pyrogram": ["py.typed"],
+        "WVLGram": ["py.typed"],
     },
     packages=find_packages(exclude=["compiler*", "tests*"]),
     zip_safe=False,

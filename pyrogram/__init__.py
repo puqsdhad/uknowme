@@ -1,3 +1,7 @@
+#  WVLGram - Telegram MTProto API Framework for Python
+#  Fork of Pyrogram, modified for private community use.
+#  Created by t.me/WannnKW
+#
 #  Pyrogram - Telegram MTProto API Client Library for Python
 #  Copyright (C) 2017-present Dan <https://github.com/delivrance>
 #
@@ -17,7 +21,7 @@
 #  along with Pyrogram.  If not, see <http://www.gnu.org/licenses/>.
 
 
-__version__ = "2.1.2.9"
+__version__ = "1.0.0"
 __license__ = "GNU Lesser General Public License v3.0 (LGPL-3.0)"
 __copyright__ = "Copyright (C) 2017-present Dan <https://github.com/delivrance>"
 

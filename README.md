@@ -1,76 +1,60 @@
 <p align="center">
-    <a href="https://github.com/wndrzzka/InLifeGram">
-        <img src="https://raw.githubusercontent.com/pyrogram/artwork/master/artwork/pyrogram-logo.png" alt="Pyrogram" width="128">
+    <a href="https://github.com/puqsdhad/uknowme">
+        <img src="https://raw.githubusercontent.com/pyrogram/artwork/master/artwork/pyrogram-logo.png" alt="WVLGram" width="128">
     </a>
     <br>
-    <b>Telegram MTProto API Framework for Python ( (Modified Version )</b>
+    <b>Telegram MTProto API Framework for Python (Modified Version)</b>
     <br>
-    <a href="https://pypi.org/project/InLifeGram">
-        <b>👉 Check Pypi Library Version 👈</b>
+    <a href="https://github.com/puqsdhad/uknowme">
+        <b>👉 Repository 👈</b>
     </a>
     <br>
     <br>
-    <a href="https://pyrogram.org">
-        Homepage
-    </a>
-    •
-    <a href="https://docs.pyrogram.org">
-        Documentation
-    </a>
-    •
-    <a href="https://docs.pyrogram.org/releases">
-        Releases
-    </a>
-    •
-    <a href="https://t.me/pyrogram">
-        News
+    <a href="https://t.me/WannnKW">
+        Support
     </a>
 </p>
 
-## Pyrogram (Modified)
+## WVLGram
 
-> **⚠️ NOTE: This is a modified version of Pyrogram.**
+> **⚠️ WVLGram (Wann Vlife Telegram) adalah modifikasi dari Pyrogram, dan hanya dipergunakan untuk komunitas pribadi.**
 >
 > **Support & Updates:** [t.me/WannnKW](https://t.me/WannnKW)
 >
-> Elegant, modern and asynchronous Telegram MTProto API framework in Python for users and bots
+> Elegant, modern and asynchronous Telegram MTProto API framework in Python for users and bots.
 > Support Effect Emoji in chat
 > Stabil & Power Full
 
 ``` python
-from pyrogram import Client, filters
+from WVLGram import Client, filters
 
 app = Client("my_account")
 
 
 @app.on_message(filters.private)
 async def hello(client, message):
-    await message.reply("Hello from Pyrogram!")
+    await message.reply("Hello from WVLGram!")
 
 
 app.run()
 ```
 
-**Pyrogram** is a modern, elegant and asynchronous [MTProto API](https://docs.pyrogram.org/topics/mtproto-vs-botapi)
-framework. It enables you to easily interact with the main Telegram API through a user account (custom client) or a bot
-identity (bot API alternative) using Python.
+**WVLGram** is a modern, elegant and asynchronous MTProto API framework. It enables you to easily interact with the main Telegram API through a user account (custom client) or a bot identity (bot API alternative) using Python.
+
+> This project is a modified version of [Pyrogram](https://github.com/pyrogram/pyrogram). All credit for the original
+> framework goes to the Pyrogram authors (Copyright (C) 2017-present Dan <https://github.com/delivrance>). WVLGram is
+> maintained for private community use only, created by [t.me/WannnKW](https://t.me/WannnKW).
 
 ### Support
 
-If you'd like to support Pyrogram, you can consider:
-
-- [Become a GitHub sponsor](https://github.com/sponsors/delivrance).
-- [Become a LiberaPay patron](https://liberapay.com/delivrance).
-- [Become an OpenCollective backer](https://opencollective.com/pyrogram).
-
-For support regarding this modified version, please contact: t.me/WannnKW
+For support regarding this modified version, please contact: [t.me/WannnKW](https://t.me/WannnKW)
 
 ### Key Features
 
-- **Ready**: Install Pyrogram with pip and start building your applications right away.
+- **Ready**: Install WVLGram with pip and start building your applications right away.
 - **Easy**: Makes the Telegram API simple and intuitive, while still allowing advanced usages.
 - **Elegant**: Low-level details are abstracted and re-presented in a more convenient way.
-- **Fast**: Boosted up by [TgCrypto](https://github.com/pyrogram/tgcrypto), a high-performance cryptography library written in C.  
+- **Fast**: Boosted up by [TgCrypto](https://github.com/pyrogram/tgcrypto), a high-performance cryptography library written in C.
 - **Type-hinted**: Types and methods are all type-hinted, enabling excellent editor support.
 - **Async**: Fully asynchronous (also usable synchronously if wanted, for convenience).
 - **Powerful**: Full access to Telegram's API to execute any official client action and more.
@@ -83,7 +67,4 @@ pip3 install git+https://github.com/puqsdhad/uknowme
 
 ### Resources
 
-- Check out the docs at https://docs.pyrogram.org to learn more about Pyrogram, get started right
-away and discover more in-depth material for building your client applications.
-- Join the official channel at https://t.me/pyrogram and stay tuned for news, updates and announcements.
-- Modified Version Updates By t.me/WannnKW
+- Modified version updates by [t.me/WannnKW](https://t.me/WannnKW)
