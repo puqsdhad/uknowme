@@ -30,6 +30,9 @@ from .on_raw_update import OnRawUpdate
 from .on_user_status import OnUserStatus
 from .on_story import OnStory
 from .on_bot_business_connection import OnBotBusinessConnection
+from .on_business_message import OnBusinessMessage
+from .on_edited_business_message import OnEditedBusinessMessage
+from .on_deleted_business_messages import OnDeletedBusinessMessages
 
 
 class Decorators(
@@ -46,6 +49,9 @@ class Decorators(
     OnChatMemberUpdated,
     OnChatJoinRequest,
     OnStory,
-    OnBotBusinessConnection
+    OnBotBusinessConnection,
+    OnBusinessMessage,
+    OnEditedBusinessMessage,
+    OnDeletedBusinessMessages
 ):
     pass
