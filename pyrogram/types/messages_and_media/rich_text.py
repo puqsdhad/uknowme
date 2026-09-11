@@ -23,6 +23,24 @@ import pyrogram
 from pyrogram import raw, enums, utils
 from ..object import Object
 
+# ---------------------------------------------------------------------------
+# Telegram Rich Message - Rich Text Support (Layer 227)
+#
+# Saat MENGIRIM rich text, server menerima:
+#   TextPlain, TextBold, TextItalic, TextUnderline, TextStrike, TextFixed,
+#   TextSpoiler, TextMarked, TextSubscript, TextSuperscript, TextUrl,
+#   TextEmail, TextPhone, TextMath, TextAnchor, TextDate, TextConcat,
+#   TextImage (butuh document id), TextCustomEmoji (butuh document id)
+#
+# TIDAK diterima sebagai input (server: RICH_MESSAGE_RICH_TEXT_INVALID):
+#   TextHashtag, TextCashtag, TextBotCommand, TextMention, TextMentionName,
+#   TextAutoUrl, TextAutoEmail, TextAutoPhone, TextBankCard
+#   -> tipe ini dideteksi/dibuat otomatis oleh server, tidak bisa dikirim.
+#
+# Catatan: kelas ini juga dipakai untuk MEMPARSE teks saat menerima, sehingga
+# menangani lebih banyak tipe daripada yang bisa dikirim.
+# ---------------------------------------------------------------------------
+
 
 class RichText(Object):
     """A rich formatted text element.
@@ -205,6 +223,8 @@ class RichText(Object):
         if isinstance(raw_text, raw.types.TextSpoiler):
             return RichText(client=client, type=enums.RichTextType.SPOILER, text=RichText._parse(client, raw_text.text))
 
+        # CATATAN: Mention/Hashtag/BotCommand/Cashtag/Auto*/BankCard TIDAK bisa
+        # dikirim (server: RICH_MESSAGE_RICH_TEXT_INVALID). Hanya untuk parsing.
         if isinstance(raw_text, raw.types.TextMention):
             return RichText(client=client, type=enums.RichTextType.MENTION, text=RichText._parse(client, raw_text.text))
 

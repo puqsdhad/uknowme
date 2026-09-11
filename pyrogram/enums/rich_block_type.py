@@ -20,6 +20,15 @@ from enum import auto
 
 from .auto_name import AutoName
 
+# Enum tipe block rich message. Dipakai saat MEMPARSE pesan rich yang diterima.
+# Untuk MENGIRIM, hanya sebagian tipe yang didukung server (Layer 227):
+#   DIDUKUNG: PARAGRAPH, PREFORMATTED, BLOCKQUOTE, BLOCKQUOTE_BLOCKS, LIST,
+#             ORDERED_LIST, TABLE, DETAILS, MATH, ANCHOR, DIVIDER, FOOTER,
+#             BUTTON_ROW, PHOTO, VIDEO, AUDIO, DOCUMENT
+#   DITOLAK : TITLE, SUBTITLE, HEADER, SUBHEADER, AUTHOR_DATE, KICKER, COVER,
+#             THINKING, COLLAGE, SLIDESHOW, MAP, EMBED, EMBED_POST
+# Detail lengkap ada di pyrogram/types/messages_and_media/rich_block.py
+
 
 class RichBlockType(AutoName):
     """Rich block element type enumeration used in :obj:`~pyrogram.types.RichBlock`."""

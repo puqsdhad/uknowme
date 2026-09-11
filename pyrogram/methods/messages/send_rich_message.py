@@ -39,6 +39,12 @@ class SendRichMessage:
 
         .. include:: /_includes/usable-by/bots.rst
 
+        Hanya block yang didukung server yang boleh dipakai, lihat daftarnya di
+        :obj:`~pyrogram.types.InputRichMessage` (Paragraph, Preformatted,
+        Blockquote, List, Table, Details, Math, Divider, Footer, ButtonRow, ...).
+        Block seperti Title/Header/Kicker/Thinking akan ditolak dengan error
+        ``RICH_MESSAGE_BLOCK_UNSUPPORTED``.
+
         Parameters:
             chat_id (``int`` | ``str``):
                 Unique identifier (int) or username (str) of the target chat.
@@ -66,6 +72,8 @@ class SendRichMessage:
 
         Returns:
             :obj:`~pyrogram.types.Message`: On success, the sent message is returned.
+            Catatan: server tidak meng-echo kembali ``rich_message`` pada pesan
+            yang baru dikirim, jadi ``message.rich_message`` bisa ``None``.
 
         Example:
             .. code-block:: python
@@ -73,7 +81,8 @@ class SendRichMessage:
                 from pyrogram.raw import types as raw_types
                 from pyrogram.types import InputRichMessage
 
-                await app.send_rich_message(
+                # pakai client / c sesuai handler kamu
+                await client.send_rich_message(
                     chat_id,
                     InputRichMessage(blocks=[
                         raw_types.PageBlockParagraph(

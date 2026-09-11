@@ -39,52 +39,96 @@ class InputRichMessage(Object):
         noautolink (``bool``, *optional*):
             Pass True to disable automatic link detection.
 
+    Server support (Layer 227):
+        Block yang DIDUKUNG saat mengirim: ``PageBlockParagraph``,
+        ``PageBlockPreformatted``, ``PageBlockBlockquote``,
+        ``PageBlockBlockquoteBlocks``, ``PageBlockList``,
+        ``PageBlockOrderedList``, ``PageBlockTable``, ``PageBlockDetails``,
+        ``PageBlockMath``, ``PageBlockAnchor``, ``PageBlockDivider``,
+        ``PageBlockFooter``, ``PageBlockButtonRow``, serta
+        ``PageBlockPhoto/Video/Audio/Document`` (butuh media valid).
+
+        Block yang TIDAK didukung (ditolak server): ``PageBlockTitle``,
+        ``PageBlockSubtitle``, ``PageBlockHeader``, ``PageBlockSubheader``,
+        ``PageBlockAuthorDate``, ``PageBlockKicker``, ``PageBlockCover``,
+        ``PageBlockThinking``, ``PageBlockCollage``, ``PageBlockSlideshow``.
+
+        Untuk judul/section, pakai ``PageBlockParagraph`` berisi ``TextBold``
+        atau ``TextUnderline``.
+
     Example:
         .. code-block:: python
 
             from pyrogram.raw import types as raw_types
-            from pyrogram.types import (
-                InputRichMessage, RichText, PageButton,
-                InlineButtonType, RichButtonStyle,
-            )
-            from pyrogram.enums import RichTextType
+            from pyrogram.types import InputRichMessage
 
-            # Simple rich message
+            # Rich message sederhana (block yang didukung)
             msg = InputRichMessage(blocks=[
                 raw_types.PageBlockParagraph(
-                    text=raw_types.TextPlain(text="Hello, rich world!")
+                    text=raw_types.TextBold(
+                        text=raw_types.TextPlain(text="Judul Rich Message")
+                    )
                 ),
+                raw_types.PageBlockDivider(),
+                raw_types.PageBlockParagraph(
+                    text=raw_types.TextConcat(texts=[
+                        raw_types.TextPlain(text="Tebal: "),
+                        raw_types.TextBold(text=raw_types.TextPlain(text="bold")),
+                        raw_types.TextPlain(text=" miring: "),
+                        raw_types.TextItalic(text=raw_types.TextPlain(text="italic")),
+                    ])
+                ),
+                raw_types.PageBlockBlockquote(
+                    text=raw_types.TextPlain(text="Ini kutipan panjang..."),
+                    caption=raw_types.TextPlain(text="Sumber"),
+                ),
+                raw_types.PageBlockList(items=[
+                    raw_types.PageListItemText(
+                        text=raw_types.TextPlain(text="Item selesai"),
+                        checkbox=True, checked=True,
+                    ),
+                    raw_types.PageListItemText(
+                        text=raw_types.TextPlain(text="Item biasa"),
+                    ),
+                ]),
                 raw_types.PageBlockPreformatted(
                     text=raw_types.TextPlain(text="print('hi')"),
-                    language="python"
+                    language="python",
                 ),
             ])
-            await app.send_rich_message(chat_id, msg)
 
-            # Rich message with buttons
+            # pakai client / c sesuai handler kamu
+            await client.send_rich_message(chat_id, msg)
+
+            # Rich message dengan tombol berwarna (banyak tombol)
             msg_with_buttons = InputRichMessage(blocks=[
                 raw_types.PageBlockParagraph(
-                    text=raw_types.TextPlain(text="Choose an option:")
+                    text=raw_types.TextPlain(text="Pilih opsi:")
                 ),
                 raw_types.PageBlockButtonRow(
+                    align_center=True,
                     buttons=[
                         raw_types.PageButton(
-                            text=raw_types.TextPlain(text="Visit Website"),
+                            text=raw_types.TextPlain(text="Website"),
                             type=raw_types.InlineButtonTypeUrl(
-                                url="https://pyrogram.org"
+                                url="https://telegram.org"
                             ),
                             style=raw_types.RichButtonStyle(bg_primary=True),
                         ),
                         raw_types.PageButton(
-                            text=raw_types.TextPlain(text="Buy Now"),
-                            type=raw_types.InlineButtonTypeBuy(),
+                            text=raw_types.TextPlain(text="Konfirmasi"),
+                            type=raw_types.InlineButtonTypeCallback(data=b"ok"),
                             style=raw_types.RichButtonStyle(bg_success=True),
                         ),
+                        raw_types.PageButton(
+                            text=raw_types.TextPlain(text="Batalkan"),
+                            type=raw_types.InlineButtonTypeCallback(data=b"no"),
+                            style=raw_types.RichButtonStyle(bg_danger=True),
+                        ),
                     ],
-                    align_center=True,
                 ),
             ])
-            await app.send_rich_message(chat_id, msg_with_buttons)
+            await client.send_rich_message(chat_id, msg_with_buttons)
     """
 
     def __init__(

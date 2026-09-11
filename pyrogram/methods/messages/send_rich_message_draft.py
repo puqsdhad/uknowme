@@ -37,6 +37,9 @@ class SendRichMessageDraft:
         message being composed in real time.  Call repeatedly with updated
         content to stream progressively-generated rich replies.
 
+        Hanya block yang didukung server (lihat
+        :obj:`~pyrogram.types.InputRichMessage`) yang bisa dipakai.
+
         .. include:: /_includes/usable-by/bots.rst
 
         Parameters:
@@ -61,7 +64,8 @@ class SendRichMessageDraft:
                 from pyrogram.raw import types as raw_types
                 from pyrogram.types import InputRichMessage
 
-                await app.send_rich_message_draft(
+                # pakai client / c sesuai handler kamu
+                await client.send_rich_message_draft(
                     chat_id,
                     InputRichMessage(blocks=[
                         raw_types.PageBlockParagraph(

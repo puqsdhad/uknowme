@@ -20,6 +20,15 @@ from enum import auto
 
 from .auto_name import AutoName
 
+# Enum tipe rich text. Dipakai saat MEMPARSE teks rich yang diterima.
+# Untuk MENGIRIM, hanya sebagian tipe yang didukung server (Layer 227):
+#   DIDUKUNG: PLAIN, BOLD, ITALIC, UNDERLINE, STRIKE, CODE, SPOILER, MARKED,
+#             SUBSCRIPT, SUPERSCRIPT, URL, EMAIL, PHONE, MATH, ANCHOR, DATE,
+#             CONCAT, IMAGE, CUSTOM_EMOJI
+#   DITOLAK : MENTION, HASHTAG, CASHTAG, BOT_COMMAND, AUTO_URL, AUTO_EMAIL,
+#             AUTO_PHONE, BANK_CARD, MENTION_NAME
+# Detailnya ada di pyrogram/types/messages_and_media/rich_text.py
+
 
 class RichTextType(AutoName):
     """Rich text element type enumeration used in :obj:`~pyrogram.types.RichText`."""

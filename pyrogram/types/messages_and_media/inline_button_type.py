@@ -22,6 +22,29 @@ import pyrogram
 from pyrogram import raw, enums
 from ..object import Object
 
+# ---------------------------------------------------------------------------
+# Telegram Rich Message - Rich Button Types (Layer 227/229)
+#
+# Tipe tombol yang bisa dipakai di dalam rich message (PageButton):
+#   InlineButtonType.url()           -> buka link
+#   InlineButtonType.url_auth()      -> link + login/auth
+#   InlineButtonType.web_view()      -> Mini App / web view
+#   InlineButtonType.callback()      -> kirim callback_data ke bot
+#   InlineButtonType.game()          -> buka game
+#   InlineButtonType.switch_inline() -> mode inline
+#   InlineButtonType.user_profile()  -> buka profil user
+#   InlineButtonType.copy()          -> copy teks
+#   InlineButtonType.disabled()      -> tombol nonaktif
+#
+# TIDAK valid di rich message biasa:
+#   InlineButtonType.buy() -> butuh konteks invoice/pembayaran, jika dipakai
+#   di rich message biasa server menolak dengan "BUTTON_TYPE_INVALID".
+#
+# Warna tombol diatur lewat RichButtonStyle:
+#   bg_primary=True (biru), bg_success=True (hijau), bg_danger=True (merah),
+#   link=True (gaya link).
+# ---------------------------------------------------------------------------
+
 
 class RichButtonStyle(Object):
     """Visual style for a rich button.
@@ -126,7 +149,11 @@ class InlineButtonType(Object):
 
     @classmethod
     def buy(cls) -> "InlineButtonType":
-        """Buy button."""
+        """Buy button.
+
+        CATATAN: hanya valid pada konteks invoice/pembayaran. Jika dipakai di
+        rich message biasa, server menolak dengan "BUTTON_TYPE_INVALID".
+        """
         return cls(raw.types.InlineButtonTypeBuy())
 
     @classmethod

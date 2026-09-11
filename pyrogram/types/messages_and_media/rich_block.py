@@ -23,6 +23,44 @@ import pyrogram
 from pyrogram import raw, enums, utils
 from ..object import Object
 
+# ---------------------------------------------------------------------------
+# Telegram Rich Message - Server Support Matrix (Layer 227)
+#
+# Saat MENGIRIM rich message (InputRichMessage / send_rich_message), server
+# Telegram hanya menerima PageBlock berikut. Selain daftar ini akan ditolak
+# dengan error "RICH_MESSAGE_BLOCK_UNSUPPORTED"/"RICH_MESSAGE_BLOCK_UNEXPECTED".
+#
+# DIDUKUNG (bisa dikirim):
+#   PageBlockParagraph        -> RichBlockType.PARAGRAPH
+#   PageBlockPreformatted     -> RichBlockType.PREFORMATTED   (code block)
+#   PageBlockBlockquote       -> RichBlockType.BLOCKQUOTE
+#   PageBlockBlockquoteBlocks -> RichBlockType.BLOCKQUOTE_BLOCKS
+#   PageBlockList             -> RichBlockType.LIST           (checkbox list)
+#   PageBlockOrderedList      -> RichBlockType.ORDERED_LIST   (1,2,3 list)
+#   PageBlockTable            -> RichBlockType.TABLE
+#   PageBlockDetails          -> RichBlockType.DETAILS        (collapsible)
+#   PageBlockMath             -> RichBlockType.MATH           (LaTeX)
+#   PageBlockAnchor           -> RichBlockType.ANCHOR
+#   PageBlockDivider          -> RichBlockType.DIVIDER
+#   PageBlockFooter           -> RichBlockType.FOOTER
+#   PageBlockButtonRow        -> RichBlockType.BUTTON_ROW     (rich buttons)
+#   PageBlockPhoto/Video/Audio/Document (butuh media/document id yang valid)
+#
+# TIDAK DIDUKUNG sebagai input (walau ada di schema, server menolak):
+#   PageBlockTitle, PageBlockSubtitle, PageBlockHeader, PageBlockSubheader,
+#   PageBlockAuthorDate, PageBlockKicker, PageBlockCover, PageBlockThinking,
+#   PageBlockCollage, PageBlockSlideshow, PageBlockMap, PageBlockEmbed,
+#   PageBlockEmbedPost, PageBlockChannel, PageBlockRelatedArticles
+#
+#   Workaround untuk judul/section: gunakan PageBlockParagraph yang berisi
+#   TextBold / TextUnderline, contoh:
+#       PageBlockParagraph(text=TextBold(text=TextPlain(text="JUDUL")))
+#
+# Catatan: kelas di bawah dipakai untuk MEMPARSE (menerima) block, sehingga
+# menangani lebih banyak tipe daripada yang bisa dikirim. Block yang tidak
+# dikenal akan di-parse sebagai RichBlockType.UNSUPPORTED.
+# ---------------------------------------------------------------------------
+
 
 class RichBlockTableCell(Object):
     """A single cell inside a :obj:`~pyrogram.types.RichBlock` TABLE.
@@ -282,6 +320,9 @@ class RichBlock(Object):
         if isinstance(raw_block, raw.types.PageBlockUnsupported):
             return RichBlock(client=client, type=enums.RichBlockType.UNSUPPORTED)
 
+        # CATATAN: Title/Subtitle/AuthorDate/Header/Subheader/Kicker adalah block
+        # metadata. Bisa di-parse saat menerima, TAPI tidak bisa dikirim
+        # (server menolak RICH_MESSAGE_BLOCK_UNSUPPORTED). Pakai Paragraph+Bold.
         if isinstance(raw_block, raw.types.PageBlockTitle):
             return RichBlock(client=client, type=enums.RichBlockType.TITLE, text=_rt(raw_block.text))
 
@@ -493,6 +534,7 @@ class RichBlock(Object):
             return RichBlock(client=client, type=enums.RichBlockType.MATH, math_source=raw_block.source)
 
         if isinstance(raw_block, raw.types.PageBlockThinking):
+            # Tidak didukung server sebagai input (RICH_MESSAGE_BLOCK_UNSUPPORTED).
             return RichBlock(client=client, type=enums.RichBlockType.THINKING, text=_rt(raw_block.text))
 
         if isinstance(raw_block, raw.types.PageBlockHeading1):
@@ -526,6 +568,7 @@ class RichBlock(Object):
         if isinstance(raw_block, raw.types.PageBlockButtonRow):
             from .page_button import PageButton
 
+            # Rich button row - DIDUKUNG untuk dikirim (baris tombol berwarna).
             return RichBlock(
                 client=client,
                 type=enums.RichBlockType.BUTTON_ROW,
