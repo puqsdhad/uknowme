@@ -73,7 +73,9 @@ class CallbackQuery(Object, Update):
         inline_message_id: str = None,
         data: Union[str, bytes] = None,
         game_short_name: str = None,
-        matches: List[Match] = None
+        matches: List[Match] = None,
+        business_connection_id: str = None,
+        reply_to_message: "types.Message" = None
     ):
         super().__init__(client)
 
@@ -85,6 +87,8 @@ class CallbackQuery(Object, Update):
         self.data = data
         self.game_short_name = game_short_name
         self.matches = matches
+        self.business_connection_id = business_connection_id
+        self.reply_to_message = reply_to_message
 
     @staticmethod
     async def _parse(
@@ -134,6 +138,8 @@ class CallbackQuery(Object, Update):
                 chats,
                 is_scheduled=False,
                 replies=0,
+                business_connection_id=callback_query.connection_id,
+                raw_reply_to_message=getattr(callback_query, "reply_to_message", None)
             )
         # Try to decode callback query data into string. If that fails, fallback to bytes instead of decoding by
         # ignoring/replacing errors, this way, button clicks will still work.
@@ -152,6 +158,8 @@ class CallbackQuery(Object, Update):
             chat_instance=str(callback_query.chat_instance),
             data=data,
             game_short_name=getattr(callback_query, "game_short_name", None),
+            business_connection_id=getattr(callback_query, "connection_id", None),
+            reply_to_message=getattr(message, "reply_to_message", None),
             client=client
         )
 
@@ -241,6 +249,7 @@ class CallbackQuery(Object, Update):
                 entities=entities,
                 reply_markup=reply_markup,
                 disable_web_page_preview=disable_web_page_preview,
+                business_connection_id=self.message.business_connection_id
             )
         else:
             return await self._client.edit_inline_text(
@@ -358,6 +367,7 @@ class CallbackQuery(Object, Update):
                 chat_id=self.message.chat.id,
                 message_id=self.message.id,
                 reply_markup=reply_markup,
+                business_connection_id=self.message.business_connection_id
             )
         else:
             return await self._client.edit_inline_reply_markup(

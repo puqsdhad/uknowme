@@ -81,6 +81,9 @@ class Message(Object, Update):
         topics (:obj:`~pyrogram.types.ForumTopic`, *optional*):
             Topic the message belongs to.
 
+        business_connection_id (``str``, *optional*):
+            Business connection identifier, for messages received via a connected business account.
+
         forward_from (:obj:`~pyrogram.types.User`, *optional*):
             For forwarded messages, sender of the original message.
 
@@ -376,6 +379,7 @@ class Message(Object, Update):
         date: datetime = None,
         chat: "types.Chat" = None,
         topics: "types.ForumTopic" = None,
+        business_connection_id: str = None,
         forward_from: "types.User" = None,
         forward_sender_name: str = None,
         forward_from_chat: "types.Chat" = None,
@@ -474,6 +478,7 @@ class Message(Object, Update):
         self.date = date
         self.chat = chat
         self.topics = topics
+        self.business_connection_id = business_connection_id
         self.forward_from = forward_from
         self.forward_sender_name = forward_sender_name
         self.forward_from_chat = forward_from_chat
@@ -606,7 +611,9 @@ class Message(Object, Update):
         chats: dict,
         topics: dict = None,
         is_scheduled: bool = False,
-        replies: int = 1
+        replies: int = 1,
+        business_connection_id: str = None,
+        raw_reply_to_message: raw.base.Message = None
     ):
         if isinstance(message, raw.types.MessageEmpty):
             return Message(id=message.id, empty=True, client=client)
@@ -1116,6 +1123,21 @@ class Message(Object, Update):
             if not parsed_message.poll and parsed_message.chat is not None:
                 client.message_cache[(parsed_message.chat.id, parsed_message.id)] = parsed_message
 
+            if business_connection_id:
+                parsed_message.business_connection_id = business_connection_id
+
+            if raw_reply_to_message:
+                parsed_message.reply_to_message = await Message._parse(
+                    client,
+                    raw_reply_to_message,
+                    users,
+                    chats,
+                    None,
+                    False,
+                    0,
+                    business_connection_id
+                )
+
             return parsed_message
         
     def listen(
@@ -1445,7 +1467,8 @@ class Message(Object, Update):
             quote_entities=quote_entities,
             schedule_date=schedule_date,
             protect_content=protect_content,
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
+            business_connection_id=self.business_connection_id
         )
 
     reply = reply_text

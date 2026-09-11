@@ -23,6 +23,8 @@ import pyrogram
 from pyrogram import raw, utils, enums
 from pyrogram import types
 
+from .inline_session import get_session
+
 
 class SendMessage:
     async def send_message(
@@ -47,7 +49,8 @@ class SendMessage:
             "types.ReplyKeyboardMarkup",
             "types.ReplyKeyboardRemove",
             "types.ForceReply"
-        ] = None
+        ] = None,
+        business_connection_id: str = None
     ) -> "types.Message":
         """Send text messages.
 
@@ -105,6 +108,9 @@ class SendMessage:
                 Additional interface options. An object for an inline keyboard, custom reply keyboard,
                 instructions to remove reply keyboard or to force a reply from the user.
 
+            business_connection_id (``str``, *optional*):
+                Unique identifier of the business connection to send the message on behalf of.
+
         Returns:
             :obj:`~pyrogram.types.Message`: On success, the sent text message is returned.
 
@@ -148,28 +154,44 @@ class SendMessage:
         quote_text, quote_entities = (await utils.parse_text_entities(self, quote_text, parse_mode, quote_entities)).values()
 
         peer = await self.resolve_peer(chat_id)
-        r = await self.invoke(
-            raw.functions.messages.SendMessage(
-                peer=peer,
-                no_webpage=disable_web_page_preview or None,
-                silent=disable_notification or None,
-                reply_to=utils.get_reply_to(
-                    reply_to_message_id=reply_to_message_id,
-                    message_thread_id=message_thread_id,
-                    reply_to_peer=await self.resolve_peer(reply_to_chat_id) if reply_to_chat_id else None,
-                    reply_to_story_id=reply_to_story_id,
-                    quote_text=quote_text,
-                    quote_entities=quote_entities,
-                ),
-                random_id=self.rnd_id(),
-                schedule_date=utils.datetime_to_timestamp(schedule_date),
-                reply_markup=await reply_markup.write(self) if reply_markup else None,
-                message=message,
-                entities=entities,
-                noforwards=protect_content,
-                effect=effect_id
-            )
+
+        session = None
+        if business_connection_id:
+            business_connection = self.business_user_connection_cache.get(business_connection_id)
+            if business_connection is None:
+                business_connection = await self.get_business_connection(business_connection_id)
+            session = await get_session(self, business_connection._raw.connection.dc_id)
+
+        rpc = raw.functions.messages.SendMessage(
+            peer=peer,
+            no_webpage=disable_web_page_preview or None,
+            silent=disable_notification or None,
+            reply_to=utils.get_reply_to(
+                reply_to_message_id=reply_to_message_id,
+                message_thread_id=message_thread_id,
+                reply_to_peer=await self.resolve_peer(reply_to_chat_id) if reply_to_chat_id else None,
+                reply_to_story_id=reply_to_story_id,
+                quote_text=quote_text,
+                quote_entities=quote_entities,
+            ),
+            random_id=self.rnd_id(),
+            schedule_date=utils.datetime_to_timestamp(schedule_date),
+            reply_markup=await reply_markup.write(self) if reply_markup else None,
+            message=message,
+            entities=entities,
+            noforwards=protect_content,
+            effect=effect_id
         )
+
+        if business_connection_id:
+            r = await session.invoke(
+                raw.functions.InvokeWithBusinessConnection(
+                    query=rpc,
+                    connection_id=business_connection_id
+                )
+            )
+        else:
+            r = await self.invoke(rpc)
 
         if isinstance(r, raw.types.UpdateShortSentMessage):
             peer = await self.resolve_peer(chat_id)

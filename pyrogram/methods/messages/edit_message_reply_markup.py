@@ -22,6 +22,8 @@ import pyrogram
 from pyrogram import raw
 from pyrogram import types
 
+from .inline_session import get_session
+
 
 class EditMessageReplyMarkup:
     async def edit_message_reply_markup(
@@ -29,6 +31,7 @@ class EditMessageReplyMarkup:
         chat_id: Union[int, str],
         message_id: int,
         reply_markup: "types.InlineKeyboardMarkup" = None,
+        business_connection_id: str = None
     ) -> "types.Message":
         """Edit only the reply markup of messages sent by the bot.
 
@@ -60,13 +63,25 @@ class EditMessageReplyMarkup:
                     InlineKeyboardMarkup([[
                         InlineKeyboardButton("New button", callback_data="new_data")]]))
         """
-        r = await self.invoke(
-            raw.functions.messages.EditMessage(
-                peer=await self.resolve_peer(chat_id),
-                id=message_id,
-                reply_markup=await reply_markup.write(self) if reply_markup else None,
-            )
+        rpc = raw.functions.messages.EditMessage(
+            peer=await self.resolve_peer(chat_id),
+            id=message_id,
+            reply_markup=await reply_markup.write(self) if reply_markup else None,
         )
+
+        if business_connection_id:
+            business_connection = self.business_user_connection_cache.get(business_connection_id)
+            if business_connection is None:
+                business_connection = await self.get_business_connection(business_connection_id)
+            session = await get_session(self, business_connection._raw.connection.dc_id)
+            r = await session.invoke(
+                raw.functions.InvokeWithBusinessConnection(
+                    query=rpc,
+                    connection_id=business_connection_id
+                )
+            )
+        else:
+            r = await self.invoke(rpc)
 
         for i in r.updates:
             if isinstance(i, (raw.types.UpdateEditMessage, raw.types.UpdateEditChannelMessage)):

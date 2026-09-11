@@ -25,8 +25,8 @@ from typing import Any
 import pyrogram
 from pyrogram import utils, types, raw
 from pyrogram.handlers import (
-    CallbackQueryHandler, MessageHandler, EditedMessageHandler, ErrorHandler, DeletedMessagesHandler,
-    UserStatusHandler, RawUpdateHandler, InlineQueryHandler, PollHandler,
+    BusinessBotConnectionHandler, CallbackQueryHandler, MessageHandler, EditedMessageHandler, ErrorHandler,
+    DeletedMessagesHandler, UserStatusHandler, RawUpdateHandler, InlineQueryHandler, PollHandler,
     ChosenInlineResultHandler, ChatMemberUpdatedHandler, ChatJoinRequestHandler, StoryHandler
 )
 
@@ -34,10 +34,27 @@ log = logging.getLogger(__name__)
 
 
 class Dispatcher:
-    NEW_MESSAGE_UPDATES = (raw.types.UpdateNewMessage, raw.types.UpdateNewChannelMessage, raw.types.UpdateNewScheduledMessage)
-    EDIT_MESSAGE_UPDATES = (raw.types.UpdateEditMessage, raw.types.UpdateEditChannelMessage)
-    DELETE_MESSAGES_UPDATES = (raw.types.UpdateDeleteMessages, raw.types.UpdateDeleteChannelMessages)
-    CALLBACK_QUERY_UPDATES = (raw.types.UpdateBotCallbackQuery, raw.types.UpdateInlineBotCallbackQuery)
+    NEW_MESSAGE_UPDATES = (
+        raw.types.UpdateNewMessage,
+        raw.types.UpdateNewChannelMessage,
+        raw.types.UpdateNewScheduledMessage,
+        raw.types.UpdateBotNewBusinessMessage
+    )
+    EDIT_MESSAGE_UPDATES = (
+        raw.types.UpdateEditMessage,
+        raw.types.UpdateEditChannelMessage,
+        raw.types.UpdateBotEditBusinessMessage
+    )
+    DELETE_MESSAGES_UPDATES = (
+        raw.types.UpdateDeleteMessages,
+        raw.types.UpdateDeleteChannelMessages,
+        raw.types.UpdateBotDeleteBusinessMessage
+    )
+    CALLBACK_QUERY_UPDATES = (
+        raw.types.UpdateBotCallbackQuery,
+        raw.types.UpdateInlineBotCallbackQuery,
+        raw.types.UpdateBusinessBotCallbackQuery
+    )
     CHAT_MEMBER_UPDATES = (raw.types.UpdateChatParticipant, raw.types.UpdateChannelParticipant)
     USER_STATUS_UPDATES = (raw.types.UpdateUserStatus,)
     BOT_INLINE_QUERY_UPDATES = (raw.types.UpdateBotInlineQuery,)
@@ -45,6 +62,7 @@ class Dispatcher:
     CHOSEN_INLINE_RESULT_UPDATES = (raw.types.UpdateBotInlineSend,)
     CHAT_JOIN_REQUEST_UPDATES = (raw.types.UpdateBotChatInviteRequester,)
     NEW_STORY_UPDATES = (raw.types.UpdateStory,)
+    BOT_BUSINESS_CONNECT_UPDATES = (raw.types.UpdateBotBusinessConnect,)
 
     def __init__(self, client: "pyrogram.Client"):
         self.client = client
@@ -58,9 +76,19 @@ class Dispatcher:
         self.groups = OrderedDict()
 
         async def message_parser(update, users, chats):
+            business_connection_id = getattr(update, "connection_id", None)
+
             return (
-                await pyrogram.types.Message._parse(self.client, update.message, users, chats, None,
-                                                    isinstance(update, raw.types.UpdateNewScheduledMessage)),
+                await pyrogram.types.Message._parse(
+                    self.client,
+                    update.message,
+                    users,
+                    chats,
+                    None,
+                    isinstance(update, raw.types.UpdateNewScheduledMessage),
+                    1,
+                    business_connection_id
+                ),
                 MessageHandler
             )
 
@@ -127,6 +155,12 @@ class Dispatcher:
                 StoryHandler
             )
 
+        async def bot_business_connect_parser(update, users, chats):
+            return (
+                await pyrogram.types.BusinessConnection._parse(self.client, update, users, chats),
+                BusinessBotConnectionHandler
+            )
+
         self.update_parsers = {
             Dispatcher.NEW_MESSAGE_UPDATES: message_parser,
             Dispatcher.EDIT_MESSAGE_UPDATES: edited_message_parser,
@@ -138,7 +172,8 @@ class Dispatcher:
             Dispatcher.CHOSEN_INLINE_RESULT_UPDATES: chosen_inline_result_parser,
             Dispatcher.CHAT_MEMBER_UPDATES: chat_member_updated_parser,
             Dispatcher.CHAT_JOIN_REQUEST_UPDATES: chat_join_request_parser,
-            Dispatcher.NEW_STORY_UPDATES: story_parser
+            Dispatcher.NEW_STORY_UPDATES: story_parser,
+            Dispatcher.BOT_BUSINESS_CONNECT_UPDATES: bot_business_connect_parser
         }
 
         self.update_parsers = {key: value for key_tuple, value in self.update_parsers.items() for key in key_tuple}
