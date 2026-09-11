@@ -25,7 +25,8 @@ from typing import Any
 import pyrogram
 from pyrogram import utils, types, raw
 from pyrogram.handlers import (
-    BusinessBotConnectionHandler, CallbackQueryHandler, MessageHandler, EditedMessageHandler, ErrorHandler,
+    BusinessBotConnectionHandler, BusinessMessageHandler, CallbackQueryHandler, MessageHandler,
+    EditedBusinessMessageHandler, EditedMessageHandler, ErrorHandler, DeletedBusinessMessagesHandler,
     DeletedMessagesHandler, UserStatusHandler, RawUpdateHandler, InlineQueryHandler, PollHandler,
     ChosenInlineResultHandler, ChatMemberUpdatedHandler, ChatJoinRequestHandler, StoryHandler
 )
@@ -37,18 +38,15 @@ class Dispatcher:
     NEW_MESSAGE_UPDATES = (
         raw.types.UpdateNewMessage,
         raw.types.UpdateNewChannelMessage,
-        raw.types.UpdateNewScheduledMessage,
-        raw.types.UpdateBotNewBusinessMessage
+        raw.types.UpdateNewScheduledMessage
     )
     EDIT_MESSAGE_UPDATES = (
         raw.types.UpdateEditMessage,
-        raw.types.UpdateEditChannelMessage,
-        raw.types.UpdateBotEditBusinessMessage
+        raw.types.UpdateEditChannelMessage
     )
     DELETE_MESSAGES_UPDATES = (
         raw.types.UpdateDeleteMessages,
-        raw.types.UpdateDeleteChannelMessages,
-        raw.types.UpdateBotDeleteBusinessMessage
+        raw.types.UpdateDeleteChannelMessages
     )
     CALLBACK_QUERY_UPDATES = (
         raw.types.UpdateBotCallbackQuery,
@@ -62,7 +60,10 @@ class Dispatcher:
     CHOSEN_INLINE_RESULT_UPDATES = (raw.types.UpdateBotInlineSend,)
     CHAT_JOIN_REQUEST_UPDATES = (raw.types.UpdateBotChatInviteRequester,)
     NEW_STORY_UPDATES = (raw.types.UpdateStory,)
-    BOT_BUSINESS_CONNECT_UPDATES = (raw.types.UpdateBotBusinessConnect,)
+    BUSINESS_CONNECTION_UPDATES = (raw.types.UpdateBotBusinessConnect,)
+    NEW_BUSINESS_MESSAGE_UPDATES = (raw.types.UpdateBotNewBusinessMessage,)
+    EDITED_BUSINESS_MESSAGE_UPDATES = (raw.types.UpdateBotEditBusinessMessage,)
+    DELETED_BUSINESS_MESSAGES_UPDATES = (raw.types.UpdateBotDeleteBusinessMessage,)
 
     def __init__(self, client: "pyrogram.Client"):
         self.client = client
@@ -161,6 +162,21 @@ class Dispatcher:
                 BusinessBotConnectionHandler
             )
 
+        async def business_message_parser(update, users, chats):
+            # Business messages are parsed the same way as regular messages, but the handler is different
+            parsed, _ = await message_parser(update, users, chats)
+            return (parsed, BusinessMessageHandler)
+
+        async def edited_business_message_parser(update, users, chats):
+            # Edited business messages are parsed the same way as edited messages, but the handler is different
+            parsed, _ = await message_parser(update, users, chats)
+            return (parsed, EditedBusinessMessageHandler)
+
+        async def deleted_business_messages_parser(update, users, chats):
+            # Deleted business messages are parsed the same way as deleted messages, but the handler is different
+            parsed, _ = await deleted_messages_parser(update, users, chats)
+            return (parsed, DeletedBusinessMessagesHandler)
+
         self.update_parsers = {
             Dispatcher.NEW_MESSAGE_UPDATES: message_parser,
             Dispatcher.EDIT_MESSAGE_UPDATES: edited_message_parser,
@@ -173,7 +189,10 @@ class Dispatcher:
             Dispatcher.CHAT_MEMBER_UPDATES: chat_member_updated_parser,
             Dispatcher.CHAT_JOIN_REQUEST_UPDATES: chat_join_request_parser,
             Dispatcher.NEW_STORY_UPDATES: story_parser,
-            Dispatcher.BOT_BUSINESS_CONNECT_UPDATES: bot_business_connect_parser
+            Dispatcher.BUSINESS_CONNECTION_UPDATES: bot_business_connect_parser,
+            Dispatcher.NEW_BUSINESS_MESSAGE_UPDATES: business_message_parser,
+            Dispatcher.EDITED_BUSINESS_MESSAGE_UPDATES: edited_business_message_parser,
+            Dispatcher.DELETED_BUSINESS_MESSAGES_UPDATES: deleted_business_messages_parser
         }
 
         self.update_parsers = {key: value for key_tuple, value in self.update_parsers.items() for key in key_tuple}
