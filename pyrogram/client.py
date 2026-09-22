@@ -104,6 +104,14 @@ class Client(Methods):
             Code of the language used on the client, in ISO 639-1 standard.
             Defaults to "en".
 
+        lang_pack (``str``, *optional*):
+            Platform identifier reported via initConnection (i.e. "android", "tdesktop").
+            Defaults to "" (empty), which preserves the legacy behavior.
+
+        system_lang_code (``str``, *optional*):
+            System language code reported via initConnection, in ISO 639-1 standard.
+            Defaults to "en".
+
         ipv6 (``bool``, *optional*):
             Pass True to connect to Telegram using IPv6.
             Defaults to False (IPv4).
@@ -196,6 +204,8 @@ class Client(Methods):
     SYSTEM_VERSION = f"{platform.system()} {platform.release()}"
 
     LANG_CODE = "en"
+    LANG_PACK = ""
+    SYSTEM_LANG_CODE = "en"
 
     PARENT_DIR = Path(sys.argv[0]).parent
 
@@ -220,6 +230,8 @@ class Client(Methods):
         device_model: str = DEVICE_MODEL,
         system_version: str = SYSTEM_VERSION,
         lang_code: str = LANG_CODE,
+        lang_pack: str = LANG_PACK,
+        system_lang_code: str = SYSTEM_LANG_CODE,
         ipv6: bool = False,
         proxy: dict = None,
         test_mode: bool = False,
@@ -253,6 +265,8 @@ class Client(Methods):
         self.device_model = device_model
         self.system_version = system_version
         self.lang_code = lang_code.lower()
+        self.lang_pack = lang_pack.lower()
+        self.system_lang_code = system_lang_code.lower()
         self.ipv6 = ipv6
         self.proxy = proxy
         self.test_mode = test_mode
