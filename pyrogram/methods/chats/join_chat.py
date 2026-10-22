@@ -59,20 +59,37 @@ class JoinChat:
         match = self.INVITE_LINK_RE.match(str(chat_id))
 
         if match:
-            chat = await self.invoke(
+            result = await self.invoke(
                 raw.functions.messages.ImportChatInvite(
                     hash=match.group(1)
                 )
             )
-            if isinstance(chat.chats[0], raw.types.Chat):
-                return types.Chat._parse_chat_chat(self, chat.chats[0])
-            elif isinstance(chat.chats[0], raw.types.Channel):
-                return types.Chat._parse_channel_chat(self, chat.chats[0])
         else:
-            chat = await self.invoke(
+            result = await self.invoke(
                 raw.functions.channels.JoinChannel(
                     channel=await self.resolve_peer(chat_id)
                 )
             )
 
-            return types.Chat._parse_channel_chat(self, chat.chats[0])
+        chats = getattr(result, "chats", None)
+
+        if chats is None:
+            updates = getattr(result, "updates", None)
+
+            if updates is None:
+                raise ValueError(
+                    "Join chat: response tidak memuat data chat, mungkin butuh webview"
+                )
+
+            chats = getattr(updates, "chats", None) or []
+            await self.fetch_peers(chats)
+            await self.fetch_peers(getattr(updates, "users", None) or [])
+
+        for chat in chats:
+            if isinstance(chat, raw.types.Chat):
+                return types.Chat._parse_chat_chat(self, chat)
+
+            if isinstance(chat, raw.types.Channel):
+                return types.Chat._parse_channel_chat(self, chat)
+
+        return await self.get_chat(chat_id)

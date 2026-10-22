@@ -90,4 +90,10 @@ class Invoke:
         await self.fetch_peers(getattr(r, "users", []))
         await self.fetch_peers(getattr(r, "chats", []))
 
+        updates = getattr(r, "updates", None)
+
+        if updates is not None and hasattr(updates, "chats"):
+            await self.fetch_peers(getattr(updates, "chats", []) or [])
+            await self.fetch_peers(getattr(updates, "users", []) or [])
+
         return r
